@@ -4,6 +4,7 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
+	"sort"
 
 	"github.com/spf13/cobra"
 
@@ -90,14 +91,11 @@ func newSkillInstallCommand(app *appContext) *cobra.Command {
 					}
 				}
 				target := filepath.Join(base, skill.Name)
-				if err := os.MkdirAll(target, 0o755); err != nil {
-					return clierr.New(clierr.KindLocalStorage, fmt.Sprintf("创建 skill 目录失败 %s: %v", target, err))
+				written, err := writeSkillTree(target)
+				if err != nil {
+					return err
 				}
-				dest := filepath.Join(target, "SKILL.md")
-				if err := os.WriteFile(dest, skill.Markdown, 0o644); err != nil {
-					return clierr.New(clierr.KindLocalStorage, fmt.Sprintf("写入 skill 失败 %s: %v", dest, err))
-				}
-				installed = append(installed, dest)
+				installed = append(installed, written...)
 			}
 
 			if len(installed) == 0 {
@@ -165,4 +163,31 @@ func newSkillPathCommand(app *appContext) *cobra.Command {
 			return app.printer.Success("skill.path", data, map[string]any{}, rows)
 		},
 	}
+}
+
+// writeSkillTree recreates the embedded skill tree under target, including the
+// references/ subdirectory. Returns every file written.
+func writeSkillTree(target string) ([]string, error) {
+	tree, err := skill.Files()
+	if err != nil {
+		return nil, clierr.New(clierr.KindLocalStorage, fmt.Sprintf("读取内置 skill 失败: %v", err))
+	}
+	names := make([]string, 0, len(tree))
+	for name := range tree {
+		names = append(names, name)
+	}
+	sort.Strings(names) // 稳定输出，便于用户核对与测试断言
+
+	written := make([]string, 0, len(names))
+	for _, name := range names {
+		dest := filepath.Join(target, filepath.FromSlash(name))
+		if err := os.MkdirAll(filepath.Dir(dest), 0o755); err != nil {
+			return nil, clierr.New(clierr.KindLocalStorage, fmt.Sprintf("创建 skill 目录失败 %s: %v", filepath.Dir(dest), err))
+		}
+		if err := os.WriteFile(dest, tree[name], 0o644); err != nil {
+			return nil, clierr.New(clierr.KindLocalStorage, fmt.Sprintf("写入 skill 失败 %s: %v", dest, err))
+		}
+		written = append(written, dest)
+	}
+	return written, nil
 }

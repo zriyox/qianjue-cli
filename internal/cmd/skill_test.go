@@ -4,6 +4,7 @@ import (
 	"bytes"
 	"os"
 	"path/filepath"
+	"strings"
 	"testing"
 
 	"github.com/stretchr/testify/assert"
@@ -44,13 +45,29 @@ func TestSkillInstallWritesOnlyExistingDirs(t *testing.T) {
 	require.NoError(t, err)
 	assert.Equal(t, skill.Markdown, got)
 
+	// references/ 必须一并落地，否则主文件里的按需加载链接全是死链
+	tree, err := skill.Files()
+	require.NoError(t, err)
+	var refCount int
+	for name := range tree {
+		if !strings.HasPrefix(name, "references/") {
+			continue
+		}
+		refCount++
+		refGot, refErr := os.ReadFile(filepath.Join(codexBase, skill.Name, filepath.FromSlash(name)))
+		require.NoError(t, refErr, "reference 未安装: %s", name)
+		assert.Equal(t, tree[name], refGot, name)
+	}
+	assert.Greater(t, refCount, 0, "内置 skill 应当带 references")
+
 	// the absent Claude directory must NOT be created
 	_, err = os.Stat(filepath.Join(home, ".claude"))
 	assert.True(t, os.IsNotExist(err), "不得创建用户未使用的助手配置目录")
 
 	env := decodeEnvelope(t, stdout)
 	data := env.Data.(map[string]any)
-	require.Len(t, data["installed"].([]any), 1)
+	// installed 覆盖整棵树（SKILL.md + references/*），不再是单个文件
+	assert.Len(t, data["installed"].([]any), len(tree))
 	require.Len(t, data["skipped"].([]any), 1)
 }
 

@@ -196,6 +196,7 @@ func newRootCommand(app *appContext) *cobra.Command {
 	root.AddCommand(newTaskCommand(app))
 	root.AddCommand(newVideoCommand(app))
 	root.AddCommand(newAssetCommand(app))
+	root.AddCommand(newCatalogCommand(app))
 	root.AddCommand(newSkillCommand(app))
 	return root
 }

@@ -30,7 +30,20 @@ make lint           # gofmt + go vet
 
 ## AI skill（随 CLI 分发，可由 AI 自助安装）
 
-本 CLI 内置一个**面向使用者**的 AI skill `qianjue-cli`，教 AI 助手怎么用 `qianjue` 生成图片/视频、等任务、处理幂等与恢复。内容通过 `go:embed` 打进二进制，源文件是 [`cli/skill/SKILL.md`](skill/SKILL.md)。
+本 CLI 内置一个**面向使用者**的 AI skill `qianjue-cli`，教 AI 助手怎么用 `qianjue` 生成图片/视频、等任务、处理幂等与恢复。
+
+skill 是**分层**的：[`skill/SKILL.md`](skill/SKILL.md) 保持精简（每次加载都要读完），
+各能力的参数表放 [`skill/references/`](skill/references/)，按需打开：
+
+```
+skill/
+  SKILL.md                    铁律 / 工作流 / 环境 / 安装
+  references/image-tasks.md   20 个图片 type + inputImages 字段
+  references/video-tasks.md   6 种 sourceType × 12 modelCode + volcanoConfig
+  references/recovery.md      退出码 / 失败处理 / 未知结果恢复
+```
+
+整棵树通过 `go:embed` 打进二进制，`skill install` 会完整还原（含 `references/`）。
 
 > 它与仓库内的 `zriyo-qianjue-cli`（**开发本 CLI 源码的护栏**）是两个不同的 skill：前者随二进制发给用户，后者只在 qianjue-parent 仓库里用，不随二进制分发。
 
@@ -83,6 +96,7 @@ qianjue
 ├── video    create · edit · upscale · gesture-replica · resume
 ├── task     get · list · wait · cancel        # <domain> 必填：image | video
 ├── asset    upload                            # 批量直传，拿公网 URL 喂给带图任务
+├── catalog  models                            # 可用模型/比例/分辨率，提交前查，别硬编码
 └── skill    show · install · path
 ```
 

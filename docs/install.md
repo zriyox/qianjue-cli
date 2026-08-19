@@ -45,7 +45,7 @@ Invoke-WebRequest -Uri "{{DOWNLOAD_BASE_URL}}/qianjue-windows-amd64.exe" -OutFil
 ### 方式 B：用 Go 安装（需要 Go 1.26+）
 
 ```bash
-go install {{GO_MODULE_PATH}}@latest
+go install github.com/zriyox/qianjue-cli/cmd/qianjue@latest
 qianjue version    # 若找不到，确认 $(go env GOPATH)/bin 在 PATH 里
 ```
 
@@ -162,5 +162,4 @@ qianjue skill show
 | 占位符 | 含义 |
 | --- | --- |
 | `{{DOWNLOAD_BASE_URL}}` | 预编译二进制的下载目录地址（各平台文件同目录，命名如 `qianjue-darwin-arm64`、`qianjue-windows-amd64.exe`） |
-| `{{GO_MODULE_PATH}}` | `go install` 用的模块路径（如 `github.com/<org>/qianjue-cli`），仓库需可被 Go 拉取 |
 | `{{TEST_API_BASE_URL}}` | 测试环境 API 根地址（仅开发者用；生产地址已内置为默认，无需填） |

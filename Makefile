@@ -11,7 +11,7 @@ PREFIX      ?= /usr/local
 .PHONY: build test lint fmt install install-skill clean
 
 build:
-	go build -trimpath -ldflags "$(LDFLAGS)" -o $(BIN_DIR)/qianjue .
+	go build -trimpath -ldflags "$(LDFLAGS)" -o $(BIN_DIR)/qianjue ./cmd/qianjue
 
 test:
 	go test ./...

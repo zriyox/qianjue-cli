@@ -30,7 +30,7 @@ func newTaskCommand(app *appContext) *cobra.Command {
 // authority on which domains are supported and returns a clear 400 otherwise.
 func validateDomain(arg string) (string, error) {
 	if arg == "" {
-		return "", clierr.Usage("任务域不能为空（如 image、video）")
+		return "", clierr.Usage("任务域不能为空（如 image、video、image-chat）")
 	}
 	return arg, nil
 }
@@ -65,7 +65,7 @@ func unifiedTableRows(raw json.RawMessage) [][2]string {
 func newTaskGetCommand(app *appContext) *cobra.Command {
 	return &cobra.Command{
 		Use:   "get <domain> <taskId>",
-		Short: "查询任务详情（domain 如 image、video）",
+		Short: "查询任务详情（domain 如 image、video、image-chat）",
 		Args:  cobra.ExactArgs(2),
 		RunE: func(cmd *cobra.Command, args []string) error {
 			domain, err := validateDomain(args[0])
@@ -101,7 +101,7 @@ func newTaskListCommand(app *appContext) *cobra.Command {
 	var page, size int
 	c := &cobra.Command{
 		Use:   "list <domain>",
-		Short: "分页查询任务列表（domain 如 image、video）",
+		Short: "分页查询任务列表（domain 如 image、video、image-chat）",
 		Args:  cobra.ExactArgs(1),
 		RunE: func(cmd *cobra.Command, args []string) error {
 			domain, err := validateDomain(args[0])
@@ -156,7 +156,7 @@ func unifiedListTableRows(raw json.RawMessage) [][2]string {
 func newTaskCancelCommand(app *appContext) *cobra.Command {
 	return &cobra.Command{
 		Use:   "cancel <domain> <taskId>",
-		Short: "取消任务（失败不自动重试；domain 如 image、video）",
+		Short: "取消任务（失败不自动重试；domain 如 image、video、image-chat）",
 		Args:  cobra.ExactArgs(2),
 		RunE: func(cmd *cobra.Command, args []string) error {
 			domain, err := validateDomain(args[0])
@@ -197,7 +197,7 @@ func newTaskWaitCommand(app *appContext) *cobra.Command {
 	var waitTimeout string
 	c := &cobra.Command{
 		Use:   "wait <domain> <taskId>",
-		Short: "等待任务终态（Ctrl-C 只停本地等待，不取消服务端任务）",
+		Short: "等待任务终态（domain 如 image、video、image-chat；Ctrl-C 只停本地等待）",
 		Args:  cobra.ExactArgs(2),
 		RunE: func(cmd *cobra.Command, args []string) error {
 			domain, err := validateDomain(args[0])

@@ -66,10 +66,13 @@ qianjue asset upload ./a.png ./b.png --output json
 qianjue asset upload --dir ./素材 --glob '*.png' --concurrency 4 --output json
 
 # ② 提交任务
-qianjue image create --request req.json --wait --output json
-qianjue video create --request req.json --output json
+qianjue image create        --request req.json --wait --output json
+qianjue video create        --request req.json --output json
+qianjue detail-image create --request req.json --output json   # 详情图：一次出整套
+qianjue reverse-prompt create --video-url '…'  --output json   # 口播：先解析出脚本
+qianjue viral-plan    create --request plan.json --output json  # 爆款策划：一次出完整脚本
 
-# ③ 查询 / 等待 / 取消（domain = image | video，必填）
+# ③ 查询 / 等待 / 取消（domain = image | video | image-chat，必填）
 qianjue task get    video <taskId> --output json
 qianjue task wait   video <taskId> --wait-timeout 10m
 qianjue task list   image --status PROCESSING --page 1 --size 10
@@ -85,7 +88,7 @@ qianjue catalog models --output json
 
 | 要做什么 | 看这里 |
 | --- | --- |
-| 图片：换装 / 抠图 / 放大 / 重绘 / 换背景 / 印花提取 / 换脸 / 三视图 / 文生图 / 图生图… | [references/image-tasks.md](references/image-tasks.md) |
+| 图片：换装 / 抠图 / 放大 / 重绘 / 换背景 / 印花提取 / 换脸 / 三视图 / 文生图 / 图生图 / **详情图生成** | [references/image-tasks.md](references/image-tasks.md) |
 | 视频：图生视频 / 口播 / 营销视频 / 模特商品替换 / 字幕擦除 / 视频翻译 / 剪辑 / 放大 | [references/video-tasks.md](references/video-tasks.md) |
 | 退出码、失败处理、未知结果恢复 | [references/recovery.md](references/recovery.md) |
 

@@ -130,3 +130,81 @@ qianjue video gesture-replica  --request x.json   # {inputImageUrl, referenceVid
 ```
 
 创建返回批次 `{batchId, totalCount, taskIds[], status}` —— **后续查询用 `taskIds[0]`，不是 batchId**。
+
+---
+
+# 口播视频生成（两步）
+
+线上「口播视频生成」= **解析一条视频拿到分镜与口播脚本 → 再拿脚本出片**。CLI 两步对应两条命令。
+
+## 第一步：解析
+
+```bash
+qianjue reverse-prompt create --video-url 'https://…/源视频.mp4' --output json
+# → {"result":{"sessionId":9001,"status":"PROCESSING"}}
+
+qianjue reverse-prompt get 9001 --output json     # 轮询直到 status 终态
+# → {"sessionId":9001,"status":"SUCCESS","rawResult":"…","structuredContent":"{…}"}
+```
+
+- **异步**：创建立刻返回 `sessionId`，脚本要等解析完才有，用 `get` 轮询。
+- 需要参考图 / 音频 / 增强描述等完整参数时改用 `--request x.json`，字段见
+  `CreateVideoReversePromptRequestDTO`：`videoUrl`(必填,≤1024)、`mediaType`、`videoSourceType`、
+  `fileName`(≤255)、`enhancementEnabled`、`referenceImages[]`、`referenceDescription`(≤2000)、
+  `audio`、`deepThinkingEnabled`。
+- 会话详情字段：`status` / `rawResult`（原始文本）/ `structuredContent`（结构化脚本）/ `thinkingContent`。
+
+## 第二步：出片
+
+拿到脚本后按普通视频提交，**`sourceType` 用 `VIDEO_REVERSE_PROMPT`**：
+
+```json
+{
+  "sourceType": "VIDEO_REVERSE_PROMPT",
+  "modelCode": "SEEDANCE_2_0_MINI",
+  "items": [{
+    "inputImageUrl": "https://…/首帧.png",
+    "prompt": "<把解析出来的脚本填这里>",
+    "durationSeconds": 5,
+    "seedanceConfig": { "resolution": "480p" }
+  }]
+}
+```
+
+之后照常 `qianjue task wait video <taskId>`。
+
+**结果未知时**：不要换新 Key 重试，用同一个 `--idempotency-key` 重放即可安全恢复。
+
+---
+
+# 爆款视频策划（一次成稿）
+
+上传商品图 + 说清平台/人群/卖点，**一次调用拿到完整脚本**，再决定要不要拿去出片。
+
+```bash
+qianjue viral-plan create --request plan.json --output json
+```
+
+```json
+{
+  "businessType": "VIRAL_PLAN",
+  "initialQuery": "夏季男士POLO衫套装，抖音，25-35岁男性，主打透气和显瘦",
+  "files": [
+    { "type": "image", "url": "https://…/商品图1.png" },
+    { "type": "image", "url": "https://…/商品图2.png" }
+  ]
+}
+```
+
+- **商品图 1~9 张**，先 `qianjue asset upload` 换成公网 URL
+- `initialQuery` ≤2000 字：说清平台、人群、卖点，**信息越全脚本越准**
+- 返回 `answer` 就是完整脚本（含多条 `scripts`，每条有 `title` 与分镜正文）；
+  `chargedCredits` 是本次扣费，`conversationId` 可回 Web 端继续追问
+
+**信息不足时**后端会在 `answer` 里说明还缺什么 —— 补全后**重新提交**（用新 Key），
+不要在命令行里模拟多轮对话；Web 端才有「AI 追问 + 从多条脚本里挑」的完整体验。
+
+**一轮就要扣积分**（页面标价 50）。结果未知时**绝不要换新 Key 重试**，
+用同一个 `--idempotency-key` 重放会回放历史结果，不会二次扣费。
+
+拿到脚本后出片：把脚本填进 `prompt`，`sourceType` 用 `VIDEO_REVERSE_PROMPT` 或 `VIDEO_TASK`。

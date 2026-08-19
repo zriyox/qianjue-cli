@@ -27,8 +27,11 @@ const (
 
 // Local request-log operations.
 const (
-	OperationImageCreate = "IMAGE_CREATE"
-	OperationVideoCreate = "VIDEO_CREATE"
+	OperationImageCreate         = "IMAGE_CREATE"
+	OperationVideoCreate         = "VIDEO_CREATE"
+	OperationDetailImageCreate   = "DETAIL_IMAGE_CREATE"
+	OperationReversePromptCreate = "REVERSE_PROMPT_CREATE"
+	OperationViralPlanCreate     = "VIRAL_PLAN_CREATE"
 )
 
 // RequestLog is the on-disk pre-flight record, written BEFORE the first HTTP

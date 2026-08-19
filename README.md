@@ -3,12 +3,9 @@
 千谲 AI 平台的官方命令行客户端：提交图片 / 视频生成任务，查询与等待结果，按幂等键恢复未知结果。
 
 ```bash
-# 预编译二进制（无需 Go）
 curl -fsSL -o qianjue https://github.com/zriyox/qianjue-cli/releases/latest/download/qianjue-darwin-arm64
 chmod +x qianjue && sudo mv qianjue /usr/local/bin/
-
-# 或用 Go
-go install github.com/zriyox/qianjue-cli/cmd/qianjue@latest
+# 或：go install github.com/zriyox/qianjue-cli/cmd/qianjue@latest
 ```
 
 - **完整安装指引（也是给 AI 助手读的）**：[`docs/install.md`](docs/install.md)

@@ -70,13 +70,13 @@ qianjue version    # 若找不到，确认 $(go env GOPATH)/bin 在 PATH 里
 只有千谲开发者需要切到 dev / test：
 
 ```bash
-# 测试环境
-qianjue config profile create test --api-base-url '{{TEST_API_BASE_URL}}'
-qianjue config profile use test
-
 # 本地开发
 qianjue config profile create dev --api-base-url 'http://localhost:7777/api/v1'
 qianjue config profile use dev
+
+# 其它环境：把地址换成该环境的 API 根地址即可（形如 https://<域名>/api/v1）
+qianjue config profile create test --api-base-url 'https://<测试环境域名>/api/v1'
+qianjue config profile use test
 ```
 
 也可以不建 Profile，单次覆盖：`--api-base-url '...'` 或环境变量 `QIANJUE_API_BASE_URL`。
@@ -149,6 +149,21 @@ qianjue skill show > <你的 skills 目录>/qianjue-cli/SKILL.md
 
 skills 只在会话启动时扫描加载。装完后**必须让用户重新打开 Codex / Claude Code 会话**，新 skill 才会生效。请明确地告诉用户这一点。
 
+## 5.5 能做什么
+
+```bash
+qianjue catalog models                    # 可用模型 / 比例 / 分辨率
+qianjue asset upload ./图.png              # 本地文件 → 公网 URL（带图任务的前置）
+qianjue image create --request x.json     # 20 类图片任务（换装/抠图/放大/重绘/换脸/三视图…）
+qianjue detail-image create --request x.json   # 详情图：一次出整套
+qianjue video create --request x.json     # 图生视频 / 口播出片 / 营销视频 / 字幕擦除 / 视频翻译
+qianjue reverse-prompt create --video-url '…'  # 口播：把视频解析成分镜与脚本
+qianjue viral-plan create --request x.json     # 爆款策划：一次拿完整脚本
+qianjue task wait <domain> <id>           # domain = image | video | image-chat
+```
+
+完整参数在装好的 skill 里（`qianjue skill show` 与 `references/`）。
+
 ## 6. 冒烟验证（可选）
 
 ```bash
@@ -166,14 +181,3 @@ qianjue skill show
 ```
 
 直接查看完整使用说明。
-
----
-
-## 维护者填写清单
-
-发布本页前必须把下列占位符替换成真实值：
-
-| 占位符 | 含义 |
-| --- | --- |
-| `https://github.com/zriyox/qianjue-cli/releases/latest/download` | 预编译二进制的下载目录地址（各平台文件同目录，命名如 `qianjue-darwin-arm64`、`qianjue-windows-amd64.exe`） |
-| `{{TEST_API_BASE_URL}}` | 测试环境 API 根地址（仅开发者用；生产地址已内置为默认，无需填） |

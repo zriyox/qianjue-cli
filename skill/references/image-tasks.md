@@ -87,3 +87,55 @@
 ```
 
 不确定某类型还需要哪些字段时：**先按最小集提交**，后端参数校验的报错会写明缺什么，按提示补 —— 不要凭猜测编字段名。
+
+---
+
+# 详情图生成（独立端点）
+
+一次提交产出**一整套**图（主图 / 卖点图 / 套餐图），走自己的端点，不是 `image create`。
+
+```bash
+qianjue detail-image create --request req.json --output json
+qianjue detail-image list --limit 20 --output json   # 轮询：最新在前，每张图的状态与地址在 items 里
+```
+
+## 请求字段
+
+| 字段 | 约束 |
+| --- | --- |
+| `requestId` | **必填**，≤128，业务侧幂等键（与 CLI 的 Idempotency-Key 是两层） |
+| `productImageUrls` | **1~3 张**产品图，公网地址 |
+| `referenceImageUrls` | 1~10 张参考图，可选 |
+| `generationMode` | `MAIN_IMAGE`（主图，出 1 张）/ `AUTO_PACKAGE`（自动套餐）/ `REFERENCE_STYLE`（照参考图版式，每张参考图出 1 张） |
+| `mainImageCount` | 主图张数，**上限 7** |
+| `detailImageCount` | 详情图张数，**上限 12** |
+| `platformCode` | 平台，如淘宝 |
+| `productInfo` | 商品信息对象，可让平台自动识别 |
+| `packageSize` | 套餐规格 |
+
+## 读取方式与别处不同
+
+详情图**没有单个 taskId**：一次创建返回 `messageId` + `items[]`，每个 item 自带
+`itemId` / `status` / `resultImageUrl` / `errorMessage`。所以轮询用 `detail-image list`，
+**不要**用 `task get`。
+
+（`task get image-chat <taskId>` 能查到底层的 ImageChat 任务，但拿不到这套分项状态。）
+
+## 结果未知时
+
+**不要换新 Key 重试**。服务端创建是幂等的：**用同一个 `--idempotency-key` 和同一份请求体重发**，
+会回放历史结果，不会生成第二套图。CLI 在传输失败时会把这条命令直接打给你。
+
+## 示例
+
+```json
+{
+  "requestId": "my-req-001",
+  "generationMode": "AUTO_PACKAGE",
+  "productImageUrls": ["https://…/product.png"],
+  "referenceImageUrls": ["https://…/ref1.png"],
+  "mainImageCount": 5,
+  "detailImageCount": 5,
+  "platformCode": "TAOBAO"
+}
+```

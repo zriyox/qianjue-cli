@@ -9,13 +9,14 @@ description: 用 qianjue 命令行调用千谲 AI 平台生成图片和视频、
 
 `qianjue` 是千谲 AI 平台的官方命令行客户端：提交图片/视频生成任务、查询与等待结果、失败后按幂等键恢复。它只是 HTTP API 的客户端，**任务在服务端异步跑，生成要花钱（扣积分）**。
 
-## 0. 铁律（先读这 5 条，违反会造成重复扣费或丢任务）
+## 0. 铁律（先读这 6 条，违反会造成重复扣费或丢任务）
 
 1. **创建请求超时/网络中断/结果未知时，绝不换一个新的 Idempotency-Key 重试**，也不要重新跑一次 `create`——那会重复创建任务、重复扣费。唯一正确动作是 `resume`（见 §6）。
 2. **必须判进程退出码**，不要只看 stdout 有没有内容。退出码是稳定契约（见 §7）。
 3. `--output json` 时 stdout **只有一个 JSON**，进度与提示都在 stderr。要机器解析就固定加 `--output json`。
 4. **生成类命令会扣用户积分**。批量、循环、重试前先跟用户确认数量。
 5. 用户没要求就**不要取消任务**。`Ctrl-C` 和等待超时只停止本地等待，服务端任务照常在跑，不会退款。
+6. **本地图片不能直接喂给任务**——必须先 `qianjue asset upload` 换成公网 URL（见 §3.5）。
 
 ## 1. 检查是否已安装
 
@@ -105,6 +106,43 @@ qianjue image create --request /tmp/req.json --wait --output json
 - `--wait-timeout 10m` 覆盖等待上限；**超时只是本地不等了，任务仍在服务端跑**（退出码 7），随后可用 `qianjue task get image <taskId>` 继续查。
 - `--idempotency-key` 一般不用手动给，省略时自动生成并在发 HTTP 前落本地日志。
 
+## 3.5 带输入图的任务（图生图 / 编辑 / 换装 / 放大）
+
+**关键约束：`inputImages[].url` 必须是服务端能访问的公网地址，本地路径一律无效。** 手上是本地文件时，先上传拿 URL：
+
+```bash
+# 上传（支持批量；文件直传对象存储，不经过千谲服务器）
+qianjue asset upload ./原图.png --output json
+# → [{"file":"./原图.png","objectKey":"...","url":"https://.../xxx.png","size":123}]
+
+# 整个目录
+qianjue asset upload --dir ./素材 --glob '*.png' --output json
+```
+
+拿到 `url` 后填进请求：
+
+```bash
+cat > /tmp/edit.json <<'EOF'
+{
+  "type": "IMG2IMG",
+  "prompt": "把人物脚上的黑色袜子改成红色，其余部分保持不变",
+  "modelCode": "GPT_IMAGE_2",
+  "aspectRatio": "1:1",
+  "outputResolution": "1K",
+  "outputCount": 1,
+  "inputImages": [
+    { "type": "image", "url": "https://<上一步拿到的 url>" }
+  ]
+}
+EOF
+
+qianjue image create --request /tmp/edit.json --wait --output json
+```
+
+- `inputImages[].type` 按任务而定：图生图 / 放大用 `image`；换装类用 `model` + `inner_top` / `outer_top` / `pants` / `whole_body` 等部位名；换脸用 `model` + `face`。**不确定时问用户，别猜**。
+- 一次最多上传 20 个文件；上传本身**不扣积分**（扣费发生在后面的 `image create`）。
+- 上传失败退出码 12（传输错误）；文件类型不支持或超限退出码 2（用法错误，消息里写明原因）。
+
 ## 4. 生成视频
 
 四种视频任务，各一个子命令，请求体形状不同：
@@ -137,7 +175,7 @@ EOF
 qianjue video create --request /tmp/video.json --output json
 ```
 
-- 图生视频的 `inputImageUrl` **必须是服务端能访问的公网地址**，本地路径无效。
+- 图生视频的 `inputImageUrl` **必须是服务端能访问的公网地址**，本地路径无效——本地文件先走 `qianjue asset upload`（§3.5）。
 - 返回的是批次：`{batchId, totalCount, taskIds[], status}`，**后续查询用 `taskIds[0]`，不是 batchId**。
 - 四类共用同一个幂等作用域，所以**同一个 Idempotency-Key 不能用于不同类型的视频请求**（会因指纹不同报冲突，退出码 6）。
 
@@ -228,6 +266,7 @@ qianjue video resume --idempotency-key <原来那个 Key>
 - ❌ 退出码 8 之后继续尝试创建
 - ❌ 把 token 写进命令行参数、脚本、日志或提交进 Git（只走 stdin / 环境变量 / 凭证库）
 - ❌ 解析非 JSON 输出、或只看 stdout 不判退出码
+- ❌ 把本地文件路径当成 `url` / `inputImageUrl` 传给后端（服务端读不到，必须先 `asset upload`）
 - ❌ 用户没要求就取消任务、或批量刷生成（花的是用户的钱）
 - ❌ 凭证库不可用时改用明文文件绕过
 

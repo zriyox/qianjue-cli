@@ -82,6 +82,7 @@ qianjue
 ├── image    create · get · wait · cancel · request-status · resume
 ├── video    create · edit · upscale · gesture-replica · resume
 ├── task     get · list · wait · cancel        # <domain> 必填：image | video
+├── asset    upload                            # 批量直传，拿公网 URL 喂给带图任务
 └── skill    show · install · path
 ```
 

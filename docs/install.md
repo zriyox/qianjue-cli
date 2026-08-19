@@ -23,7 +23,7 @@ qianjue version --output json
 
 ```bash
 # 把 <PLATFORM> 换成 darwin-arm64 / darwin-amd64 / linux-amd64 / linux-arm64
-curl -fsSL -o /tmp/qianjue "{{DOWNLOAD_BASE_URL}}/qianjue-<PLATFORM>"
+curl -fsSL -o /tmp/qianjue "https://github.com/zriyox/qianjue-cli/releases/latest/download/qianjue-<PLATFORM>"
 chmod +x /tmp/qianjue
 sudo mv /tmp/qianjue /usr/local/bin/qianjue      # 无 sudo 权限时改放 ~/.local/bin 并确保它在 PATH
 qianjue version
@@ -34,13 +34,27 @@ qianjue version
 ```powershell
 $dir = "$env:LOCALAPPDATA\qianjue"
 New-Item -ItemType Directory -Force -Path $dir | Out-Null
-Invoke-WebRequest -Uri "{{DOWNLOAD_BASE_URL}}/qianjue-windows-amd64.exe" -OutFile "$dir\qianjue.exe"
+Invoke-WebRequest -Uri "https://github.com/zriyox/qianjue-cli/releases/latest/download/qianjue-windows-amd64.exe" -OutFile "$dir\qianjue.exe"
 # 加入 PATH（当前用户，永久）
 [Environment]::SetEnvironmentVariable("Path", $env:Path + ";$dir", "User")
 & "$dir\qianjue.exe" version
 ```
 
 > 装完若 `qianjue` 仍然找不到，多半是 PATH 没生效——让用户开一个新终端再试。
+
+**macOS 会拦未签名二进制**：下载来的文件带隔离属性，直接运行会弹「无法验证开发者」。去掉隔离标记即可：
+
+```bash
+xattr -d com.apple.quarantine /usr/local/bin/qianjue 2>/dev/null || true
+qianjue version
+```
+
+**校验完整性（可选）**：每个 Release 附带 `SHA256SUMS.txt`。
+
+```bash
+curl -fsSL -O https://github.com/zriyox/qianjue-cli/releases/latest/download/SHA256SUMS.txt
+shasum -a 256 -c SHA256SUMS.txt --ignore-missing
+```
 
 ### 方式 B：用 Go 安装（需要 Go 1.26+）
 
@@ -161,5 +175,5 @@ qianjue skill show
 
 | 占位符 | 含义 |
 | --- | --- |
-| `{{DOWNLOAD_BASE_URL}}` | 预编译二进制的下载目录地址（各平台文件同目录，命名如 `qianjue-darwin-arm64`、`qianjue-windows-amd64.exe`） |
+| `https://github.com/zriyox/qianjue-cli/releases/latest/download` | 预编译二进制的下载目录地址（各平台文件同目录，命名如 `qianjue-darwin-arm64`、`qianjue-windows-amd64.exe`） |
 | `{{TEST_API_BASE_URL}}` | 测试环境 API 根地址（仅开发者用；生产地址已内置为默认，无需填） |

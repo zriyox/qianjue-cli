@@ -54,7 +54,7 @@ func refreshServer(t *testing.T, calls *atomic.Int32) *httptest.Server {
 		require.NoError(t, jsonDecodeBody(r, &body))
 		if body["refreshToken"] != validRT {
 			w.WriteHeader(409)
-			fmt.Fprint(w, `{"code":2016,"message":"Refresh Token 已被使用，请重新登录","data":null}`)
+			fmt.Fprint(w, `{"code":2103,"message":"Refresh Token 已被使用，请重新登录","data":null}`)
 			return
 		}
 		n := calls.Add(1)

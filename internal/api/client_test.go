@@ -77,7 +77,7 @@ func TestHeadersAndAuth(t *testing.T) {
 func TestBusinessErrorMapping(t *testing.T) {
 	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		w.WriteHeader(409)
-		fmt.Fprint(w, `{"code":2020,"message":"图片任务创建结果不确定，请勿更换 Idempotency-Key 重复提交","data":{"requestId":7,"status":"RECOVERY_REQUIRED"}}`)
+		fmt.Fprint(w, `{"code":2107,"message":"图片任务创建结果不确定，请勿更换 Idempotency-Key 重复提交","data":{"requestId":7,"status":"RECOVERY_REQUIRED"}}`)
 	}))
 	defer srv.Close()
 
@@ -86,7 +86,7 @@ func TestBusinessErrorMapping(t *testing.T) {
 	require.Error(t, err)
 	ce := clierr.AsCLIError(err)
 	assert.Equal(t, clierr.KindRecoveryRequired, ce.Kind)
-	assert.Equal(t, 2020, ce.Code)
+	assert.Equal(t, 2107, ce.Code)
 	assert.Equal(t, 409, ce.HTTPStatus)
 	assert.Contains(t, string(ce.Details), "RECOVERY_REQUIRED")
 }

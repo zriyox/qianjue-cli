@@ -88,12 +88,12 @@ func Login(ctx context.Context, client *api.Client, store cred.Store, p *output.
 		poll, err := client.PollDeviceAuth(ctx, created.DeviceSessionID, created.DeviceCode)
 		if err != nil {
 			ce := clierr.AsCLIError(err)
-			// 2016：轮询与签发/过期标记的 CAS 竞争，服务端语义是“请重新轮询”。
-			if ce.Code == 2016 {
+			// 2103：轮询与签发/过期标记的 CAS 竞争，服务端语义是“请重新轮询”。
+			if ce.Code == 2103 {
 				p.Progressf("轮询遇并发更新，继续重试")
 				continue
 			}
-			if ce.Code == 2015 {
+			if ce.Code == 2102 {
 				return nil, clierr.New(clierr.KindAuth, "Device Flow 会话已过期，请重新执行 qianjue auth login")
 			}
 			return nil, err

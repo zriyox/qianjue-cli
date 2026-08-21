@@ -1,4 +1,4 @@
-MODULE      := github.com/zriyo/qianjue-cli
+MODULE      := github.com/zriyox/qianjue-cli
 VERSION     ?= 1.0.0-dev
 COMMIT      := $(shell git rev-parse --short HEAD 2>/dev/null || echo unknown)
 BUILD_DATE  := $(shell date -u +%Y-%m-%d)

@@ -51,7 +51,7 @@ func TestFailureJSONEnvelope(t *testing.T) {
 	var stdout, stderr bytes.Buffer
 	p := NewPrinter(&stdout, &stderr, FormatJSON, false, true)
 
-	apiErr := clierr.FromAPI(409, 2020, "图片任务创建结果不确定，请勿更换 Idempotency-Key 重复提交",
+	apiErr := clierr.FromAPI(409, 2107, "图片任务创建结果不确定，请勿更换 Idempotency-Key 重复提交",
 		json.RawMessage(`{"requestId":1,"status":"RECOVERY_REQUIRED"}`))
 	exit := p.Failure("image.request-status", apiErr, map[string]any{"profile": "local"})
 
@@ -62,7 +62,7 @@ func TestFailureJSONEnvelope(t *testing.T) {
 	require.NotNil(t, env.Error)
 	assert.Equal(t, "RECOVERY_REQUIRED", env.Error.Kind)
 	assert.Equal(t, 409, env.Error.HTTPStatus)
-	assert.Equal(t, 2020, env.Error.Code)
+	assert.Equal(t, 2107, env.Error.Code)
 	assert.Equal(t, "local", env.Meta["profile"])
 }
 

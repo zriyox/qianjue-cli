@@ -79,7 +79,8 @@ qianjue task list   image --status PROCESSING --page 1 --size 10
 qianjue task cancel video <taskId>
 
 # ④ 提交前查能力（别把模型和比例硬编码）
-qianjue catalog models --output json
+qianjue catalog models       --output json   # 图片模型：比例/分辨率/画布尺寸
+qianjue catalog video-models --output json   # 视频模型：可选时长/比例/输入图上限/是否必须 prompt
 ```
 
 结果媒体统一在 `data.media.resultMediaList[]`。视频创建返回批次，**后续查询用 `taskIds[0]` 而不是 `batchId`**。

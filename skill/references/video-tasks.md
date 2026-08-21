@@ -17,6 +17,15 @@
 
 **不要传 `subjectType` / `subjectId`**（后端按登录态判定）。`clientRequestId` 由 CLI 自动生成，不用手写。
 
+> **提交前先查目录**：`qianjue catalog video-models` 返回每个模型的
+> `allowedDurations` / `allowedAspectRatios` / `maxInputImages` / `requiresPrompt` /
+> `supportsInputImages`，比本文档的静态表新。
+>
+> **但要分清两件事**（实测确认）：目录里的 `allowedDurations` 是**平台推荐/前端选择器的候选值**，
+> **不是硬校验**——给 `SEEDANCE_2_0_MINI` 传目录里没有的 `durationSeconds=7` 依然会被接受。
+> 真正会拒你的是 DTO 约束（通用 1~30、gesture-replica 4~15 等，见下）。
+> 所以：**按目录挑值最稳妥**，但别把目录当校验规则去预判报错。
+
 ## modelCode 全表
 
 | modelCode | 用途 |
@@ -89,10 +98,31 @@
 ## 其它视频端点
 
 ```bash
-qianjue video upscale          --request x.json   # {inputVideoUrl}
-qianjue video edit             --request x.json   # {config:{clips[],backgroundAudio,textTracks[],aspectRatio,canvas,exportOptions}}
-qianjue video gesture-replica  --request x.json   # {inputImageUrl, referenceVideoUrl, referenceVideoSourceUrl, extraPrompt≤500, replicaMode:NON_SPEECH|SPEECH}
+qianjue video upscale          --request x.json   # {inputVideoUrl} 或 {inputVideoOosKey}
+qianjue video edit             --request x.json   # {config:{clips[],backgroundAudio,textTracks[],aspectRatio,canvas,exportOptions}}，config 必填
+qianjue video gesture-replica  --request x.json   # 模特 / 商品替换，字段见下
 ```
+
+### `video gesture-replica`（模特 / 商品替换）完整字段
+
+**注意它跟 `video create` 的取值范围不一样** —— `durationSeconds` 这里是 **4~15**（`SEEDANCE_2_5` 可到 30），不是 1~30：
+
+| 字段 | 约束 |
+| --- | --- |
+| `inputImageUrl` / `inputImageOosKey` | 主体图，≤1024 / ≤512 |
+| `inputImages[]` | ≤20 |
+| `referenceVideoUrl` / `referenceVideoOosKey` | 参考视频 |
+| `referenceVideoSourceUrl` | ≤2048，短视频原始链接（抖音等） |
+| `extraPrompt` | ≤500 |
+| `replicaMode` | `NON_SPEECH`（默认）/ `SPEECH` |
+| `scene` | `MODEL_PRODUCT_REPLACEMENT` / `DANCE_REPLICA` |
+| `inputSubjectType` | `MODEL` / `PRODUCT` / `FACE` / `BACKGROUND` / `CLOTHING` |
+| `inputSubjectDescription` | **≤10 个字符**（很短，别写整句） |
+| `modelCode` | 只收 Seedance 四个：`SEEDANCE_2_0` / `SEEDANCE_2_5` / `SEEDANCE_2_0_FAST` / `SEEDANCE_2_0_MINI` |
+| `durationSeconds` | **4~15**；仅 `modelCode=SEEDANCE_2_5` 时上限放宽到 **30** |
+| `aspectRatio` | 默认 `9:16` |
+| `seedanceResolution` | `480p` / `720p`，留空用环境默认 |
+| `runningHubEnhanceEnabled` | 默认 false |
 
 ## 示例：字幕擦除
 
@@ -141,13 +171,16 @@ qianjue video gesture-replica  --request x.json   # {inputImageUrl, referenceVid
 
 ```bash
 qianjue reverse-prompt create --video-url 'https://…/源视频.mp4' --output json
-# → {"result":{"sessionId":9001,"status":"PROCESSING"}}
+# → {"result":{"result":{"sessionId":2090045238100922369,"status":"RUNNING", ...}}}
 
-qianjue reverse-prompt get 9001 --output json     # 轮询直到 status 终态
-# → {"sessionId":9001,"status":"SUCCESS","rawResult":"…","structuredContent":"{…}"}
+qianjue reverse-prompt get <sessionId> --output json   # 轮询直到终态
+# → {"sessionId":…,"status":"COMPLETED","rawResult":"…","structuredContent":"[…]","thinkingContent":"…"}
 ```
 
 - **异步**：创建立刻返回 `sessionId`，脚本要等解析完才有，用 `get` 轮询。
+- **真实状态值**：创建后是 `RUNNING`，成功终态是 **`COMPLETED`**（不是 `SUCCESS`）。实测一条 15 秒视频约 30~45 秒出结果。
+- `structuredContent` 是一段 **JSON 字符串**，解析后是数组，每项 `{"content": "镜号N｜景别｜起止秒\n画面：…\n台词：…"}`；
+  `rawResult` 是同样内容的纯文本版。要喂给下游出片，从 `structuredContent` 里取单个镜号的 `content` 当 prompt。
 - 需要参考图 / 音频 / 增强描述等完整参数时改用 `--request x.json`，字段见
   `CreateVideoReversePromptRequestDTO`：`videoUrl`(必填,≤1024)、`mediaType`、`videoSourceType`、
   `fileName`(≤255)、`enhancementEnabled`、`referenceImages[]`、`referenceDescription`(≤2000)、
@@ -196,15 +229,21 @@ qianjue viral-plan create --request plan.json --output json
 }
 ```
 
-- **商品图 1~9 张**，先 `qianjue asset upload` 换成公网 URL
+- **`files` 必填且至少 1 张**（DTO 只有 `@NotNull`，张数上限没有真正的校验；按 1~9 张用即可），
+  先 `qianjue asset upload` 换成公网 URL
 - `initialQuery` ≤2000 字：说清平台、人群、卖点，**信息越全脚本越准**
-- 返回 `answer` 就是完整脚本（含多条 `scripts`，每条有 `title` 与分镜正文）；
-  `chargedCredits` 是本次扣费，`conversationId` 可回 Web 端继续追问
+- **`answer` 是一段 JSON 字符串，要先 `json.loads` 再用**，解析后是
+  `{"scripts":[{"title":"…","content":"…"}]}`。`content` 是整篇 Markdown 分镜稿。
+  **`scripts` 可能只有 1 条**，别假设一定是多条。
+- `chargedCredits` 是本次实际扣费，`conversationId` 可回 Web 端继续追问，
+  另有 `supportNo` / `pricingRuleSetCode` / `pricingRuleVersion`
+- 实测一轮约 25 秒返回
 
 **信息不足时**后端会在 `answer` 里说明还缺什么 —— 补全后**重新提交**（用新 Key），
 不要在命令行里模拟多轮对话；Web 端才有「AI 追问 + 从多条脚本里挑」的完整体验。
 
-**一轮就要扣积分**（页面标价 50）。结果未知时**绝不要换新 Key 重试**，
+**一轮就要扣积分**（实测 `chargedCredits=2`；Web 页面上的标价与这里的实扣可能不同，
+**以返回的 `chargedCredits` 为准**，别照页面数字向用户报数）。结果未知时**绝不要换新 Key 重试**，
 用同一个 `--idempotency-key` 重放会回放历史结果，不会二次扣费。
 
 拿到脚本后出片：把脚本填进 `prompt`，`sourceType` 用 `VIDEO_REVERSE_PROMPT` 或 `VIDEO_TASK`。

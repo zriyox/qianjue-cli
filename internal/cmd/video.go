@@ -25,6 +25,7 @@ func newVideoCommand(app *appContext) *cobra.Command {
 		newVideoCreateCommand(app, api.VideoKindUpscale, "upscale", "创建视频高清放大任务"),
 		newVideoCreateCommand(app, api.VideoKindGestureReplica, "gesture-replica", "创建手势舞一键复刻任务"),
 		newVideoResumeCommand(app),
+		newVideoRequestStatusCommand(app),
 	)
 	return video
 }
@@ -200,7 +201,7 @@ func newVideoResumeCommand(app *appContext) *cobra.Command {
 
 // prepareVideoRequestLog persists the SUBMITTING record (operation VIDEO_CREATE)
 // before any HTTP traffic. An existing log for the same key must carry the same
-// digest, else it is rejected locally (exit 6), mirroring server-side 2018.
+// digest, else it is rejected locally (exit 6), mirroring server-side 2105.
 func prepareVideoRequestLog(app *appContext, profile, apiBaseURL, key string, rawRequest []byte, kind api.VideoKind) (*idem.RequestLog, error) {
 	existing, err := idem.LoadLog(app.getenv, profile, key)
 	if err != nil {
@@ -247,15 +248,15 @@ func prepareVideoRequestLog(app *appContext, profile, apiBaseURL, key string, ra
 func handleVideoCreateFailure(app *appContext, log *idem.RequestLog, err error) error {
 	ce := clierr.AsCLIError(err)
 	switch {
-	case ce.Code == 2020:
+	case ce.Code == 2107:
 		log.SetState(idem.StateRecoveryRequired)
 		captureRequestID(log, ce.Details)
 		app.printer.Progressf("结果不确定（RECOVERY_REQUIRED）；记录 requestId 并按 docs/integration/admin-recovery-runbook.md 处理，不要更换 Key")
-	case ce.Code == 2019:
+	case ce.Code == 2106:
 		log.SetState(idem.StateResultUnknown)
 		captureRequestID(log, ce.Details)
 		app.printer.Progressf("原请求仍在处理中；稍后以原 Key 查询，不要更换 Key")
-	case ce.Code == 2018 || ce.Code == 2021 || ce.Kind == clierr.KindInvalidRequest || ce.Kind == clierr.KindInsufficientCredit:
+	case ce.Code == 2105 || ce.Code == 2108 || ce.Kind == clierr.KindInvalidRequest || ce.Kind == clierr.KindInsufficientCredit:
 		log.SetState(idem.StateFailed)
 	default:
 		return err

@@ -138,7 +138,7 @@ func TestImageCreateLocalSameKeyDifferentJSONRejected(t *testing.T) {
 func TestImageCreateRecoveryRequiredMarksLog(t *testing.T) {
 	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		w.WriteHeader(409)
-		fmt.Fprint(w, `{"code":2020,"message":"图片任务创建结果不确定，请勿更换 Idempotency-Key 重复提交","data":{"requestId":2045019196159766532,"status":"RECOVERY_REQUIRED","attemptNo":1,"resourceType":null,"resourceId":null,"errorCode":"INTEGRATION_EXECUTION_UNCERTAIN","retryAfterAt":null}}`)
+		fmt.Fprint(w, `{"code":2107,"message":"图片任务创建结果不确定，请勿更换 Idempotency-Key 重复提交","data":{"requestId":2045019196159766532,"status":"RECOVERY_REQUIRED","attemptNo":1,"resourceType":null,"resourceId":null,"errorCode":"INTEGRATION_EXECUTION_UNCERTAIN","retryAfterAt":null}}`)
 	}))
 	defer srv.Close()
 
@@ -149,7 +149,7 @@ func TestImageCreateRecoveryRequiredMarksLog(t *testing.T) {
 
 	env := decodeEnvelope(t, stdout)
 	assert.Equal(t, "RECOVERY_REQUIRED", env.Error.Kind)
-	assert.EqualValues(t, 2020, env.Error.Code)
+	assert.EqualValues(t, 2107, env.Error.Code)
 	assert.Contains(t, stderr.String(), "admin-recovery-runbook.md")
 
 	log, err := idem.LoadLog(app.getenv, "default", "recovery-key")
@@ -223,7 +223,7 @@ func TestImageCreateTransportThenRecoveredByReplay(t *testing.T) {
 func TestImageCreate2019HintsResume(t *testing.T) {
 	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		w.WriteHeader(409)
-		fmt.Fprint(w, `{"code":2019,"message":"Integration 图片任务创建请求仍在处理中","data":{"requestId":9,"status":"PROCESSING","attemptNo":1,"resourceType":null,"resourceId":null,"errorCode":null,"retryAfterAt":null}}`)
+		fmt.Fprint(w, `{"code":2106,"message":"Integration 图片任务创建请求仍在处理中","data":{"requestId":9,"status":"PROCESSING","attemptNo":1,"resourceType":null,"resourceId":null,"errorCode":null,"retryAfterAt":null}}`)
 	}))
 	defer srv.Close()
 

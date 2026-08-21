@@ -123,14 +123,14 @@ func TestLoginTerminalStates(t *testing.T) {
 
 func TestLogin2016ConflictKeepsPolling(t *testing.T) {
 	srv := loginTestServer(t, []string{
-		`HTTP409 {"code":2016,"message":"IntegrationDeviceSession状态冲突","data":null}`,
+		`HTTP409 {"code":2103,"message":"IntegrationDeviceSession状态冲突","data":null}`,
 		pollResp("ACTIVE", true),
 	})
 	defer srv.Close()
 
 	store := cred.NewMemoryStore()
 	res, err, _ := runLogin(t, srv.URL, store)
-	require.NoError(t, err, "2016 应继续轮询而不是失败")
+	require.NoError(t, err, "2103 应继续轮询而不是失败")
 	assert.Equal(t, "qj_ds_1", res.SessionID)
 }
 

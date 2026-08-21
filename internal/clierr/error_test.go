@@ -40,19 +40,19 @@ func TestFromAPIContractTable(t *testing.T) {
 		{"401", 401, 401, KindAuth, 3},
 		{"2001", 401, 2001, KindAuth, 3},
 		{"2002", 401, 2002, KindAuth, 3},
-		{"2015", 410, 2015, KindAuth, 3},
-		{"2016", 409, 2016, KindAuth, 3},
-		{"2017", 403, 2017, KindForbidden, 4},
-		{"2018", 409, 2018, KindIdempotencyConflict, 6},
-		{"2019", 409, 2019, KindInProgress, 7},
-		{"2020", 409, 2020, KindRecoveryRequired, 8},
-		{"2021", 409, 2021, KindFinalFailure, 9},
+		{"2102", 410, 2102, KindAuth, 3},
+		{"2103", 409, 2103, KindAuth, 3},
+		{"2104", 403, 2104, KindForbidden, 4},
+		{"2105", 409, 2105, KindIdempotencyConflict, 6},
+		{"2106", 409, 2106, KindInProgress, 7},
+		{"2107", 409, 2107, KindRecoveryRequired, 8},
+		{"2108", 409, 2108, KindFinalFailure, 9},
 		{"3007", 400, 3007, KindInsufficientCredit, 9},
 		{"400", 400, 400, KindInvalidRequest, 2},
 		{"4001", 400, 4001, KindInvalidRequest, 2},
 		{"4002", 400, 4002, KindInvalidRequest, 2},
 		{"404", 404, 404, KindNotFound, 5},
-		{"2014", 404, 2014, KindNotFound, 5},
+		{"2101", 404, 2101, KindNotFound, 5},
 		{"3002", 404, 3002, KindNotFound, 5},
 		{"500", 500, 500, KindServer, 13},
 		{"501", 500, 501, KindServer, 13},
@@ -93,7 +93,7 @@ func TestFromAPIHTTPFallback(t *testing.T) {
 
 func TestFromAPIKeepsDetails(t *testing.T) {
 	data := json.RawMessage(`{"requestId":2045019196159766532,"status":"RECOVERY_REQUIRED"}`)
-	e := FromAPI(409, 2020, "m", data)
+	e := FromAPI(409, 2107, "m", data)
 	assert.JSONEq(t, string(data), string(e.Details))
 }
 

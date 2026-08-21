@@ -68,10 +68,10 @@ func EnsureFreshToken(ctx context.Context, refreshClient *api.Client, store cred
 	if err != nil {
 		ce := clierr.AsCLIError(err)
 		switch ce.Code {
-		case 2016:
+		case 2103:
 			// Refresh Token 已被使用：不循环重试（cli-contract.md §11.7）。
 			return nil, clierr.New(clierr.KindAuth, "Refresh Token 已被使用，"+errReLogin)
-		case 2001, 2002, 2014, 2015:
+		case 2001, 2002, 2101, 2102:
 			return nil, clierr.New(clierr.KindAuth, fmt.Sprintf("Refresh 凭证已失效（code %d），%s", ce.Code, errReLogin))
 		}
 		return nil, err

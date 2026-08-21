@@ -45,7 +45,7 @@ func TestCreateVideoTaskPaths(t *testing.T) {
 func TestCreateVideoTaskBusinessError(t *testing.T) {
 	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		w.WriteHeader(409)
-		fmt.Fprint(w, `{"code":2020,"message":"结果不确定","data":{"requestId":7,"status":"RECOVERY_REQUIRED"}}`)
+		fmt.Fprint(w, `{"code":2107,"message":"结果不确定","data":{"requestId":7,"status":"RECOVERY_REQUIRED"}}`)
 	}))
 	defer srv.Close()
 

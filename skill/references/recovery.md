@@ -30,9 +30,43 @@ qianjue video resume --idempotency-key <原来那个 Key>
 ```
 
 Key 在失败输出的 `data.idempotencyKey` 里。找不到时用
-`qianjue image request-status --idempotency-key <Key>` 查服务端的脱敏幂等状态。
+`qianjue image request-status --idempotency-key <Key>`（视频用 `qianjue video request-status`）
+查服务端的脱敏幂等状态。
 
 **退出码 8（RECOVERY_REQUIRED）意味着服务端也不确定结果，只能人工介入 —— 必须停下并上报，任何"再试一次"都是错的。**
+
+## 提示词被违禁词拦截（退出码 2）
+
+平台对**用户提交的提示词**统一做违禁词审核，CLI 提交同样会过。命中时：
+
+- 退出码 **2**，业务码 `4001`，message 是审核提示
+- **命中详情在 `error.details` 里**（CLI 原样透传后端返回）：
+
+```json
+{
+  "error": {
+    "code": 4001,
+    "details": {
+      "type": "SENSITIVE_WORD",
+      "fields": [
+        { "field": "prompt", "originalText": "…", "maskedText": "…",
+          "hits": [ { "word": "…", "start": 3, "end": 5 } ] }
+      ]
+    }
+  }
+}
+```
+
+`fields[].field` 告诉你是哪个字段被拦（`prompt` / `negativePrompt` / …），
+`maskedText` 是打码后的原文，`hits[]` 是命中的词与下标（左闭右开）。
+
+**处理方式**：
+- **原样重试一定还是失败** —— 这不是网络抖动，是内容判定，重试没有意义
+- 把 `hits` 里的词告诉用户，让用户决定怎么改；**不要自作主张替换词再提交**
+- 任务**没有创建**，也**没有扣费**
+
+> 当前词库由业务方在后台维护，可能是空的（空词库=全放行）。所以"这次没拦"不代表以后不拦，
+> 别因为跑通过一次就假设不会命中。
 
 ## 任务失败但不是你的错的情况
 

@@ -111,7 +111,7 @@ func Recover(ctx context.Context, rc RecoverClient, getenv config.Getenv, log *R
 		case api.IdemFailedFinal:
 			log.SetState(StateFailed)
 			persistQuietly(getenv, log, p)
-			return nil, statusError(clierr.KindFinalFailure, 2021,
+			return nil, statusError(clierr.KindFinalFailure, 2108,
 				"幂等请求已进入 FAILED_FINAL，不会重新执行创建；请先处理原失败原因，再用新请求和新 Key", status)
 		case api.IdemRecoveryRequired:
 			log.SetState(StateRecoveryRequired)
@@ -119,7 +119,7 @@ func Recover(ctx context.Context, rc RecoverClient, getenv config.Getenv, log *R
 			persistQuietly(getenv, log, p)
 			msg := fmt.Sprintf("创建结果不确定，请勿更换 Idempotency-Key；requestId=%s，按 %s 人工恢复",
 				formatRequestID(status.RequestID), RunbookPath)
-			return nil, statusError(clierr.KindRecoveryRequired, 2020, msg, status)
+			return nil, statusError(clierr.KindRecoveryRequired, 2107, msg, status)
 		default:
 			return nil, clierr.New(clierr.KindServer, fmt.Sprintf("未知幂等状态 %q", status.Status))
 		}
@@ -158,7 +158,7 @@ func replayOriginal(ctx context.Context, rc RecoverClient, getenv config.Getenv,
 // fetchSucceededTask resolves the bound resource for a SUCCEEDED request.
 func fetchSucceededTask(ctx context.Context, rc RecoverClient, getenv config.Getenv, log *RequestLog, status *api.RequestStatus) (*RecoverOutcome, error) {
 	if status.ResourceID == nil || *status.ResourceID == "" {
-		return nil, statusError(clierr.KindRecoveryRequired, 2020,
+		return nil, statusError(clierr.KindRecoveryRequired, 2107,
 			"幂等状态为 SUCCEEDED 但未绑定资源，按恢复流程人工确认（"+RunbookPath+"）", status)
 	}
 	taskRaw, err := rc.FetchTask(ctx, *status.ResourceID)

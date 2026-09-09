@@ -24,6 +24,7 @@ func TestExitCodesAreStable(t *testing.T) {
 	assert.Equal(t, 12, ExitTransport)
 	assert.Equal(t, 13, ExitServer)
 	assert.Equal(t, 14, ExitLocalStorage)
+	assert.Equal(t, 15, ExitModerationHold)
 	assert.Equal(t, 130, ExitInterrupted)
 }
 

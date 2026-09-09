@@ -9,7 +9,7 @@ description: 用 qianjue 命令行调用千谲 AI 平台生成图片和视频（
 
 本文写给 AI 助手：照此执行即可替用户完成生成任务。**参数以本文与 `references/` 为准，不要凭印象发明字段**；不确定时先跑 `qianjue <命令> --help`。
 
-## 铁律（先读这 6 条）
+## 铁律（先读这 7 条）
 
 1. **创建请求超时 / 中断 / 结果未知时，绝不换新 Idempotency-Key 重试**，也不要重跑 `create` —— 那会重复创建、重复扣费。唯一正确动作是 `resume`（见 [references/recovery.md](references/recovery.md)）。
 2. **必须判进程退出码**，别只看 stdout 有没有内容。
@@ -17,6 +17,7 @@ description: 用 qianjue 命令行调用千谲 AI 平台生成图片和视频（
 4. **生成类命令花用户的钱**。批量、循环、重试前先跟用户确认数量。
 5. 用户没要求就**不要取消任务**。`Ctrl-C` 和等待超时只停本地，服务端仍在跑，不退款。
 6. **本地文件不能直接当参数** —— 所有图片/视频 URL 必须公网可达，先 `qianjue asset upload`。
+7. **遇到退出码 15（`MODERATION_HOLD`）立刻停手，交给用户**。任务被内容审核拦住了，不是失败、不要重试、不要改提示词绕过、**更不要自己去申请审核或确认继续** —— 那是需要用户本人做的决定。照第 7 节转述给用户。
 
 ## 1. 检查安装
 
@@ -105,17 +106,50 @@ qianjue catalog video-models --output json   # 视频模型：可选时长/比�
 
 失败时 `ok:false` 且带 `error.kind`。排查问题把 `meta.traceId` 给用户，服务端可凭它查链路；加 `--trace` 可看请求阶段。**要解析就必须显式 `--output json`**，别去解析表格。
 
-## 7. 环境变量
+## 7. 内容审核拦截（退出码 15）
+
+任务提交后如果素材命中平台内容审核，任务**不会失败**：它停在 `PENDING`，积分**冻结但未扣除**，等一个人来决定。`task wait` 会立刻返回退出码 15，不会一直等下去。
+
+```json
+{ "ok": false, "error": { "kind": "MODERATION_HOLD",
+  "message": "任务 draw/8812 被内容审核拦截：图2：疑似含受限内容。任务仍保留、积分已冻结未扣除，未在 2026-09-10T14:22:00 前处理将自动取消并退积分。需要你本人决定：qianjue moderation submit-review 41207（申请人工审核）或 qianjue moderation cancel 41207（放弃并退积分）" } }
+```
+
+**你（AI 助手）该做的**：停止当前任务流 → 把拦截原因、命中的素材、记录号原样转述给用户 → 把下面两条命令交给用户**自己执行**。
+
+**你不该做的**：
+- ❌ 自行执行 `moderation submit-review` 或 `moderation confirm`
+- ❌ 给这两个命令加 `--i-understand-the-risk`（这个标志是留给用户在脚本里表达本人意愿的，不是给你绕过用的）
+- ❌ 换个说法重写提示词再提交一次（同样会被拦，且再冻一笔积分）
+- ❌ 把退出码 15 当成 `TASK_FAILED` 去重试
+
+用户可用的命令：
+
+```bash
+qianjue moderation list                    # 列出所有待决定的拦截（跨会话恢复用）
+qianjue moderation status <recordId>       # 查审核进度
+qianjue moderation submit-review <recordId>  # 申请人工审核（只入队，不放行）
+qianjue moderation confirm <recordId>      # 平台通过后，知悉风险并继续生成
+qianjue moderation cancel <recordId>       # 放弃，积分立即退回
+```
+
+流程是：**拦截 → 用户申请人工审核 → 平台审核 → 通过后用户确认继续**。注意 CLI 提交的任务不会自动进审核队列（`reviewStatus` 为空 = 还没申请），必须用户显式 `submit-review`；干等只会等到超时自动取消。
+
+审核通常跨小时，你的会话多半撑不到。等用户回来时，让他跑 `qianjue moderation list` 接着处理即可 —— 你不需要守着。`cancel` 是安全动作（退积分、不产出），用户明确说不要了的话你可以代为执行。
+
+## 8. 环境变量
 
 | 变量 | 作用 |
 | --- | --- |
-| `QIANJUE_TOKEN` | 直接提供凭证，优先级最高（CI 常用；也可绕开凭证库） |
+| `QIANJUE_TOKEN` | 直接提供凭证，优先级最高（CI 常用；**也是绕开系统凭证库的唯一方式**，见下） |
 | `QIANJUE_API_BASE_URL` | 覆盖 API 根地址 |
 | `QIANJUE_PROFILE` | 选择 Profile |
 | `QIANJUE_OUTPUT` | 默认输出格式 |
 | `QIANJUE_HTTP_TIMEOUT` / `QIANJUE_TASK_WAIT_TIMEOUT` | 单次 HTTP 超时 / 任务等待上限 |
 
-## 8. 不要做的事
+> **凭证库超时（退出码 14）怎么办**：命令报「系统凭证库读取超时（10s）；macOS 钥匙串可能正在等待授权点击」时，是钥匙串在等一个没人会点的授权弹窗 —— 换了新编译的二进制、或换了安装路径都会触发。**不要重试**，重试一样超时。让用户用 `QIANJUE_TOKEN=<token>` 提供凭证，或让用户在他自己的交互式终端里跑一次同样的命令并点「允许」，之后就正常了。
+
+## 9. 不要做的事
 
 - ❌ 创建超时后换新 Key 重试（重复扣费）—— 用 `resume`
 - ❌ 退出码 8 之后继续尝试创建
@@ -123,6 +157,8 @@ qianjue catalog video-models --output json   # 视频模型：可选时长/比�
 - ❌ 把 token 写进命令行、脚本、日志或提交进 Git
 - ❌ 解析非 JSON 输出，或只看 stdout 不判退出码
 - ❌ 用户没要求就取消任务、或批量刷生成
+- ❌ 退出码 15 时自行申请审核 / 确认继续 / 加 `--i-understand-the-risk` / 改写提示词重提
+- ❌ 退出码 14「凭证库超时」后反复重试 —— 换 `QIANJUE_TOKEN` 或让用户在交互式终端授权一次
 
 ## 安装与更新
 

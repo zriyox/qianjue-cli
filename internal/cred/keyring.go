@@ -3,11 +3,57 @@ package cred
 import (
 	"encoding/json"
 	"errors"
+	"time"
 
 	"github.com/99designs/keyring"
 
 	"github.com/zriyox/qianjue-cli/internal/clierr"
 )
+
+// keychainTimeout bounds every OS credential-store call.
+//
+// Why this is not optional: on macOS, reading an item whose ACL does not list
+// the current binary makes Security.framework pop a GUI authorization dialog and
+// block inside SecItemCopyMatching until somebody clicks it. That happens
+// routinely — a rebuilt binary at a new path is a different application as far
+// as the keychain is concerned. Nobody clicks when this CLI is driven by an AI
+// agent, by CI, or from a pipe, so the process hangs forever instead of failing.
+// A bounded wait turns that into an actionable LOCAL_STORAGE error (exit 14)
+// that tells the caller to use QIANJUE_TOKEN.
+//
+// The timeout does NOT degrade to plaintext storage — an unavailable store still
+// fails hard, per cli-contract.md §26. The abandoned goroutine stays parked in
+// the C call until the process exits, which is fine for a short-lived CLI.
+const keychainTimeout = 10 * time.Second
+
+// withTimeout runs fn and gives up after keychainTimeout.
+func withTimeout[T any](what string, fn func() (T, error)) (T, error) {
+	return withTimeoutFor(keychainTimeout, what, fn)
+}
+
+// withTimeoutFor is withTimeout with an injectable budget (tests use a short one).
+func withTimeoutFor[T any](budget time.Duration, what string, fn func() (T, error)) (T, error) {
+	type result struct {
+		value T
+		err   error
+	}
+	done := make(chan result, 1)
+	go func() {
+		v, err := fn()
+		done <- result{value: v, err: err}
+	}()
+	select {
+	case r := <-done:
+		return r.value, r.err
+	case <-time.After(budget):
+		var zero T
+		return zero, clierr.LocalStorage(
+			"系统凭证库%s超时（%s）；macOS 钥匙串可能正在等待授权点击，"+
+				"而当前不是交互式终端。改用环境变量 QIANJUE_TOKEN 提供凭证，"+
+				"或在交互式终端里重新执行一次并允许钥匙串访问",
+			what, budget)
+	}
+}
 
 // systemBackends limits keyring to real OS credential stores. The file and
 // keyctl/pass backends are intentionally excluded: an unavailable system store
@@ -37,11 +83,14 @@ func NewSystemStore() (Store, error) {
 }
 
 func (s *systemStore) Get(account string) (*Record, error) {
-	item, err := s.kr.Get(account)
+	item, err := withTimeout("读取", func() (keyring.Item, error) { return s.kr.Get(account) })
 	if errors.Is(err, keyring.ErrKeyNotFound) {
 		return nil, ErrNotFound
 	}
 	if err != nil {
+		if clierr.AsCLIError(err) != nil {
+			return nil, err
+		}
 		return nil, clierr.LocalStorage("读取系统凭证库失败: %v", err)
 	}
 	var r Record
@@ -59,23 +108,31 @@ func (s *systemStore) Set(account string, r *Record) error {
 	if err != nil {
 		return clierr.LocalStorage("序列化凭证记录失败: %v", err)
 	}
-	err = s.kr.Set(keyring.Item{
-		Key:   account,
-		Data:  data,
-		Label: "qianjue CLI (" + account + ")",
+	_, err = withTimeout("写入", func() (struct{}, error) {
+		return struct{}{}, s.kr.Set(keyring.Item{
+			Key:   account,
+			Data:  data,
+			Label: "qianjue CLI (" + account + ")",
+		})
 	})
 	if err != nil {
+		if clierr.AsCLIError(err) != nil {
+			return err
+		}
 		return clierr.LocalStorage("写入系统凭证库失败: %v", err)
 	}
 	return nil
 }
 
 func (s *systemStore) Delete(account string) error {
-	err := s.kr.Remove(account)
+	_, err := withTimeout("删除", func() (struct{}, error) { return struct{}{}, s.kr.Remove(account) })
 	if errors.Is(err, keyring.ErrKeyNotFound) {
 		return nil
 	}
 	if err != nil {
+		if clierr.AsCLIError(err) != nil {
+			return err
+		}
 		return clierr.LocalStorage("删除系统凭证库记录失败: %v", err)
 	}
 	return nil

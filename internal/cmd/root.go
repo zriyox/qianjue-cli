@@ -194,6 +194,7 @@ func newRootCommand(app *appContext) *cobra.Command {
 	root.AddCommand(newAuthCommand(app))
 	root.AddCommand(newImageCommand(app))
 	root.AddCommand(newTaskCommand(app))
+	root.AddCommand(newModerationCommand(app))
 	root.AddCommand(newVideoCommand(app))
 	root.AddCommand(newAssetCommand(app))
 	root.AddCommand(newCatalogCommand(app))

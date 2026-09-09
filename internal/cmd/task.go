@@ -59,6 +59,17 @@ func unifiedTableRows(raw json.RawMessage) [][2]string {
 	if probe.Message != "" {
 		rows = append(rows, [2]string{"Message", probe.Message})
 	}
+	// 被内容审核拦住的任务在这里就要说清楚：CLI 没有 SSE，task get 是用户唯一
+	// 能发现「任务不是在跑、而是在等你决定」的地方。
+	if hold := moderationHoldFromTask(raw); hold != nil && hold.RecordID != "" {
+		rows = append(rows,
+			[2]string{"内容审核", "已拦截，等待你决定（积分已冻结未扣除）"},
+			[2]string{"拦截记录", hold.RecordID},
+			[2]string{"拦截原因", hold.Reason},
+			[2]string{"审核状态", reviewStatusLabel(hold.ReviewStatus)},
+			[2]string{"下一步", nextActionHint(hold)},
+		)
+	}
 	return rows
 }
 

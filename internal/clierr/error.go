@@ -25,7 +25,12 @@ const (
 	ExitTransport               = 12
 	ExitServer                  = 13
 	ExitLocalStorage            = 14
-	ExitInterrupted             = 130
+	// ExitModerationHold marks "blocked by content moderation, waiting on a human
+	// decision". It is deliberately NOT ExitTaskFailed: the task is alive, credits
+	// are still held, and retrying the same prompt would just be blocked again.
+	// AI agents driving this CLI must stop and hand the decision back to the user.
+	ExitModerationHold = 15
+	ExitInterrupted    = 130
 )
 
 // Kind identifies the error category exposed in JSON output (error.kind).
@@ -48,7 +53,10 @@ const (
 	KindTransport           Kind = "TRANSPORT"
 	KindServer              Kind = "SERVER"
 	KindLocalStorage        Kind = "LOCAL_STORAGE"
-	KindInterrupted         Kind = "INTERRUPTED"
+	// KindModerationHold means the task was held by vision moderation and needs a
+	// human decision (submit for review / confirm / cancel). Not a failure.
+	KindModerationHold Kind = "MODERATION_HOLD"
+	KindInterrupted    Kind = "INTERRUPTED"
 )
 
 // exitByKind is the single source of truth for Kind → exit code.
@@ -69,6 +77,7 @@ var exitByKind = map[Kind]int{
 	KindTransport:           ExitTransport,
 	KindServer:              ExitServer,
 	KindLocalStorage:        ExitLocalStorage,
+	KindModerationHold:      ExitModerationHold,
 	KindInterrupted:         ExitInterrupted,
 }
 

@@ -9,15 +9,16 @@ description: 用 qianjue 命令行调用千谲 AI 平台生成图片和视频（
 
 本文写给 AI 助手：照此执行即可替用户完成生成任务。**参数以本文与 `references/` 为准，不要凭印象发明字段**；不确定时先跑 `qianjue <命令> --help`。
 
-## 铁律（先读这 7 条）
+## 铁律（先读这 8 条）
 
-1. **创建请求超时 / 中断 / 结果未知时，绝不换新 Idempotency-Key 重试**，也不要重跑 `create` —— 那会重复创建、重复扣费。唯一正确动作是 `resume`（见 [references/recovery.md](references/recovery.md)）。
+1. **创建请求超时 / 中断 / 结果未知时，绝不换新 Idempotency-Key 重试**（批量同理：重跑 `image batch` 同一个 `--idempotency-key` 即可安全续上，每项的 Key 由「批次 Key + 序号」推导），也不要重跑 `create` —— 那会重复创建、重复扣费。唯一正确动作是 `resume`（见 [references/recovery.md](references/recovery.md)）。
 2. **必须判进程退出码**，别只看 stdout 有没有内容。
 3. `--output json` 时 stdout 只有一个 JSON，进度都在 stderr。要机器解析就固定加 `--output json`。
 4. **生成类命令花用户的钱**。批量、循环、重试前先跟用户确认数量。
 5. 用户没要求就**不要取消任务**。`Ctrl-C` 和等待超时只停本地，服务端仍在跑，不退款。
 6. **本地文件不能直接当参数** —— 所有图片/视频 URL 必须公网可达，先 `qianjue asset upload`。
-7. **遇到退出码 15（`MODERATION_HOLD`）立刻停手，交给用户**。任务被内容审核拦住了，不是失败、不要重试、不要改提示词绕过、**更不要自己去申请审核或确认继续** —— 那是需要用户本人做的决定。照第 7 节转述给用户。
+7. **遇到退出码 16（`IDENTITY_REQUIRED`）交给用户做实名**，别代填身份证、别换账号绕（见第 7 节同款红线，细则 [references/identity.md](references/identity.md)）。
+8. **遇到退出码 15（`MODERATION_HOLD`）立刻停手，交给用户**。任务被内容审核拦住了，不是失败、不要重试、不要改提示词绕过、**更不要自己去申请审核或确认继续** —— 那是需要用户本人做的决定。照第 7 节转述给用户。
 
 ## 1. 检查安装
 
@@ -68,10 +69,15 @@ qianjue asset upload --dir ./素材 --glob '*.png' --concurrency 4 --output json
 
 # ② 提交任务
 qianjue image create        --request req.json --wait --output json
+qianjue image batch         --request items.json --output json      # 批量：数组，一项一个任务
 qianjue video create        --request req.json --output json
+qianjue image-chat  create --request req.json --output json   # 对话生图：提示词+参考图直接出图
 qianjue detail-image create --request req.json --output json   # 详情图：一次出整套
 qianjue reverse-prompt create --video-url '…'  --output json   # 口播：先解析出脚本
 qianjue viral-plan    create --request plan.json --output json  # 爆款策划：一次出完整脚本
+qianjue tvc-ads       create --request req.json --output json   # 营销视频：产品图一路到成片
+qianjue video-studio koubo submit     --request req.json           # 视频剪辑·口播成片
+qianjue video-studio smart-mix submit --request req.json           # 视频剪辑·智能混剪
 
 # ③ 查询 / 等待 / 取消（domain = image | video | image-chat，必填）
 qianjue task get    video <taskId> --output json
@@ -79,9 +85,24 @@ qianjue task wait   video <taskId> --wait-timeout 10m
 qianjue task list   image --status PROCESSING --page 1 --size 10
 qianjue task cancel video <taskId>
 
+# 营销视频（TVC）读不了统一接口，用它自己的：
+qianjue tvc-ads get  <taskId>
+qianjue tvc-ads wait <taskId> --wait-timeout 30m
+
 # ④ 提交前查能力（别把模型和比例硬编码）
 qianjue catalog models       --output json   # 图片模型：比例/分辨率/画布尺寸
 qianjue catalog video-models --output json   # 视频模型：可选时长/比例/输入图上限/是否必须 prompt
+qianjue video-studio koubo templates        # 口播模板（templateId 必填，后台可配，别硬编码）
+qianjue video-studio smart-mix templates    # 混剪模板
+qianjue video-studio smart-mix voices       # 混剪音色（voiceCode 从这里取）
+```
+
+**对话生图的参考图字段和别处不一样**：`images[]` 用 `alias`（必填，如「图1」）+ `oosUrl`（必填，公网地址），**不是** `url`；传 `url` 会报「图片别名不能为空, 图片 OOS URL 不能为空」。查询与等待走统一接口 `task get/wait image-chat <taskId>`。
+
+```json
+{ "prompt": "把背景换成浅灰影棚", "modelCode": "NANO_BANANA_2",
+  "aspectRatio": "3:4", "outputResolution": "1k", "outputCount": 1,
+  "images": [{ "alias": "图1", "oosUrl": "https://…/a.png", "sort": 1 }] }
 ```
 
 结果媒体统一在 `data.media.resultMediaList[]`。视频创建返回批次，**后续查询用 `taskIds[0]` 而不是 `batchId`**。
@@ -90,6 +111,11 @@ qianjue catalog video-models --output json   # 视频模型：可选时长/比�
 
 | 要做什么 | 看这里 |
 | --- | --- |
+| 上传本地图片到平台 | [references/upload.md](references/upload.md) |
+| 实名认证（退出码 16） | [references/identity.md](references/identity.md) |
+| 批量出图 | [references/batch.md](references/batch.md) |
+| 营销视频（TVC） | [references/tvc-ads.md](references/tvc-ads.md) |
+| 视频剪辑（口播 / 混剪） | [references/video-studio.md](references/video-studio.md) |
 | 图片：换装 / 抠图 / 放大 / 重绘 / 换背景 / 印花提取 / 换脸 / 三视图 / 文生图 / 图生图 / **详情图生成** | [references/image-tasks.md](references/image-tasks.md) |
 | 视频：图生视频 / 口播 / 营销视频 / 模特商品替换 / 字幕擦除 / 视频翻译 / 剪辑 / 放大 | [references/video-tasks.md](references/video-tasks.md) |
 | 退出码、失败处理、未知结果恢复 | [references/recovery.md](references/recovery.md) |

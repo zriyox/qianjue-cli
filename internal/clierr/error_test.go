@@ -25,6 +25,7 @@ func TestExitCodesAreStable(t *testing.T) {
 	assert.Equal(t, 13, ExitServer)
 	assert.Equal(t, 14, ExitLocalStorage)
 	assert.Equal(t, 15, ExitModerationHold)
+	assert.Equal(t, 16, ExitIdentityRequired)
 	assert.Equal(t, 130, ExitInterrupted)
 }
 
@@ -107,4 +108,27 @@ func TestAsCLIError(t *testing.T) {
 	assert.Equal(t, KindServer, wrapped.Kind)
 	assert.Equal(t, ExitServer, wrapped.ExitCode)
 	assert.Nil(t, AsCLIError(nil))
+}
+
+// 2016 是实名闸的业务码。它此前不在映射表里，被实名拦住的账号只会拿到一个
+// 泛化的 HTTP 兜底错误，用户分不清是"要实名"还是"坏了"。现在它有专属 kind
+// 和退出码，且错误信息里必须带上补救办法。
+func TestIdentityRequiredCodeCarriesRemedy(t *testing.T) {
+	e := FromAPI(403, 2016, "请先完成实名认证", nil)
+
+	assert.Equal(t, KindIdentityRequired, e.Kind)
+	assert.Equal(t, ExitIdentityRequired, e.ExitCode)
+	assert.Contains(t, e.Message, "qianjue identity verify")
+	// AI 代跑时最危险的是它自己去填身份证，文案必须挡住这一点
+	assert.Contains(t, e.Message, "不要代填")
+}
+
+// 2014/2015 是实名流程内部的状态（已认证、发起过频），不该升级成 IDENTITY_REQUIRED
+// 而把调用方引到"再去实名一次"。
+func TestOtherIdentityCodesAreNotEscalated(t *testing.T) {
+	for _, code := range []int{2014, 2015} {
+		e := FromAPI(400, code, "x", nil)
+		assert.Equal(t, KindInvalidRequest, e.Kind, "code=%d", code)
+		assert.NotContains(t, e.Message, "qianjue identity verify", "code=%d", code)
+	}
 }

@@ -30,7 +30,12 @@ const (
 	// are still held, and retrying the same prompt would just be blocked again.
 	// AI agents driving this CLI must stop and hand the decision back to the user.
 	ExitModerationHold = 15
-	ExitInterrupted    = 130
+	// ExitIdentityRequired: the account must finish real-name verification on the
+	// website before submitting. It is a personal, ID-document action the owner
+	// performs there — an agent cannot do it here — so it gets its own code
+	// instead of hiding inside a generic failure.
+	ExitIdentityRequired = 16
+	ExitInterrupted      = 130
 )
 
 // Kind identifies the error category exposed in JSON output (error.kind).
@@ -56,7 +61,10 @@ const (
 	// KindModerationHold means the task was held by vision moderation and needs a
 	// human decision (submit for review / confirm / cancel). Not a failure.
 	KindModerationHold Kind = "MODERATION_HOLD"
-	KindInterrupted    Kind = "INTERRUPTED"
+	// KindIdentityRequired means the account must finish real-name verification
+	// on the website before it can submit anything.
+	KindIdentityRequired Kind = "IDENTITY_REQUIRED"
+	KindInterrupted      Kind = "INTERRUPTED"
 )
 
 // exitByKind is the single source of truth for Kind → exit code.
@@ -78,6 +86,7 @@ var exitByKind = map[Kind]int{
 	KindServer:              ExitServer,
 	KindLocalStorage:        ExitLocalStorage,
 	KindModerationHold:      ExitModerationHold,
+	KindIdentityRequired:    ExitIdentityRequired,
 	KindInterrupted:         ExitInterrupted,
 }
 
@@ -120,14 +129,21 @@ func Interrupted() *CLIError {
 }
 
 // kindByCode implements the fixed business-code table of cli-contract.md §24.
-// 2015/2016 are device-session/refresh conflicts that both resolve to
-// "re-login required", hence AUTH.
+//
+// 2014/2015/2016 are the real-name verification codes. They used to be absent
+// here, so an account blocked by the identity gate only got a generic HTTP
+// fallback with no hint about what to do — the user could not tell submission
+// was blocked pending verification rather than broken. 2016 (verification
+// required) therefore maps to its own kind carrying a link to the website.
 var kindByCode = map[int]Kind{
 	401:  KindAuth,
 	2001: KindAuth,
 	2002: KindAuth,
 	2102: KindAuth,
 	2103: KindAuth,
+	2014: KindInvalidRequest, // 已完成实名，无需重复认证
+	2015: KindInvalidRequest, // 实名发起过于频繁
+	2016: KindIdentityRequired,
 	2104: KindForbidden,
 	2105: KindIdempotencyConflict,
 	2106: KindInProgress,
@@ -167,9 +183,26 @@ func FromAPI(httpStatus, code int, message string, data json.RawMessage) *CLIErr
 		ExitCode:   exitByKind[kind],
 		HTTPStatus: httpStatus,
 		Code:       code,
-		Message:    message,
+		Message:    withActionableHint(kind, message),
 		Details:    data,
 	}
+}
+
+// withActionableHint appends "what to do next" to errors whose fix lives
+// outside this CLI. The backend message states the fact ("请先完成实名认证")
+// but not the remedy, and the remedy here is a personal action on the website
+// that neither the CLI nor an agent driving it can perform.
+func withActionableHint(kind Kind, message string) string {
+	if kind != KindIdentityRequired {
+		return message
+	}
+	if message == "" {
+		message = "该账号需要先完成实名认证才能提交任务"
+	}
+	return message + "。运行 `qianjue identity verify` 按提示完成实名（终端会打印二维码，" +
+		"用手机微信扫码做人脸核身），完成后重试即可。" +
+		"如果你是 AI 助手：把这条命令交给用户自己执行 —— 实名要填身份证号并刷脸，" +
+		"是本人行为，不要代填、不要绕过、不要改用其他账号。"
 }
 
 // AsCLIError normalizes any error into a *CLIError; unknown errors become

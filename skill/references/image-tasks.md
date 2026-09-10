@@ -71,7 +71,9 @@ DTO 上那条 `@Max` 只是宽松外壳，真正生效的是各任务自己的�
 | 画布类 | `CANVAS_ERASER` / `CANVAS_EXPAND` / `CANVAS_MULTI_ANGLE` / `CANVAS_MOVE_OBJECT` | 各有专属字段，先按最小集提交看报错 |
 
 **当前不可用**：
-- 对话生图 `IMAGE_CHAT` 走另一套内核，Integration API 只读不能建 —— 用户问起时如实说明，别拿 `IMG2IMG` 冒充。
+- ~~对话生图只读不能建~~ **已支持创建**：用独立命令 `qianjue image-chat create`（不是 `image create` 的一个 type）。
+  它走另一套内核，请求字段也不同：`images[]` 用 `alias` + `oosUrl`，不是 `inputImages[].url`。
+  查询与等待走 `qianjue task get/wait image-chat <taskId>`。
 - `POSE_DUPLICATION`（姿势裂变）**后端未实现，已从上表移除**：参数校验会通过、任务也能建出来，
   但提交到 provider 时抛「姿势裂变任务暂未实现」，任务 FAILED、积分退回。
   **不要提交这个 type，也不要向用户承诺这个功能**；用户问起就说该能力尚未开放。

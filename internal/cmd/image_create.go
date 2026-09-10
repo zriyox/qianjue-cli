@@ -23,6 +23,7 @@ func newImageCommand(app *appContext) *cobra.Command {
 	image := &cobra.Command{Use: "image", Short: "Integration 图片任务"}
 	image.AddCommand(
 		newImageCreateCommand(app),
+		newImageBatchCommand(app),
 		newImageGetCommand(app),
 		newImageWaitCommand(app),
 		newImageCancelCommand(app),

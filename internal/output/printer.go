@@ -7,6 +7,7 @@ import (
 	"encoding/json"
 	"fmt"
 	"io"
+	"sync"
 
 	"github.com/zriyox/qianjue-cli/internal/clierr"
 )
@@ -56,11 +57,12 @@ type ErrorBody struct {
 // Printer renders command results. It never writes tokens: message strings are
 // redacted, and callers must not place credentials into data payloads.
 type Printer struct {
-	stdout  io.Writer
-	stderr  io.Writer
-	format  Format
-	quiet   bool
-	noColor bool
+	progressMutex sync.Mutex
+	stdout        io.Writer
+	stderr        io.Writer
+	format        Format
+	quiet         bool
+	noColor       bool
 }
 
 func NewPrinter(stdout, stderr io.Writer, format Format, quiet, noColor bool) *Printer {
@@ -117,6 +119,8 @@ func (p *Printer) Progressf(format string, args ...any) {
 	if p.quiet {
 		return
 	}
+	p.progressMutex.Lock()
+	defer p.progressMutex.Unlock()
 	fmt.Fprintln(p.stderr, Redact(fmt.Sprintf(format, args...)))
 }
 

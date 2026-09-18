@@ -3,7 +3,9 @@ package output
 import (
 	"bytes"
 	"encoding/json"
+	"fmt"
 	"strings"
+	"sync"
 	"testing"
 
 	"github.com/stretchr/testify/assert"
@@ -11,6 +13,28 @@ import (
 
 	"github.com/zriyox/qianjue-cli/internal/clierr"
 )
+
+func TestProgressConcurrentWritesPreserveRedactedLines(testingContext *testing.T) {
+	var stdout, stderr bytes.Buffer
+	printer := NewPrinter(&stdout, &stderr, FormatJSON, false, true)
+	var workers sync.WaitGroup
+	for index := range 64 {
+		workers.Add(1)
+		go func() {
+			defer workers.Done()
+			printer.Progressf("upload %d token=qj_pat_CONCURRENT_SECRET", index)
+		}()
+	}
+	workers.Wait()
+
+	lines := strings.Split(strings.TrimSpace(stderr.String()), "\n")
+	require.Len(testingContext, lines, 64)
+	for index := range 64 {
+		assert.Contains(testingContext, stderr.String(), fmt.Sprintf("upload %d token=", index))
+	}
+	assert.NotContains(testingContext, stderr.String(), "qj_pat_CONCURRENT_SECRET")
+	assert.Empty(testingContext, stdout.String())
+}
 
 func decodeSingleDocument(t *testing.T, stdout *bytes.Buffer) Envelope {
 	t.Helper()

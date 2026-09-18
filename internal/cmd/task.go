@@ -193,12 +193,16 @@ func newTaskCancelCommand(app *appContext) *cobra.Command {
 			if err != nil {
 				return err
 			}
-			data := map[string]any{"domain": domain, "taskId": taskID, "message": msg, "cancelled": true}
+			// 刻意不输出 cancelled 布尔：后端对「已经是终态的任务」是幂等放行，
+			// 返回的 code 与文案跟真取消时一模一样，CLI 从响应里无从区分。
+			// 硬编码 cancelled=true 会让调用方以为任务停了、积分省下了，而它可能早就
+			// 跑完并扣过费。这里只转述后端原话，真实状态让调用方用 task get 复核。
+			data := map[string]any{"domain": domain, "taskId": taskID, "message": msg}
 			return app.printer.Success("task.cancel", data, app.meta, [][2]string{
 				{"Domain", domain},
 				{"Task ID", taskID},
-				{"Cancelled", "true"},
 				{"Message", msg},
+				{"提示", "后端对已完成的任务也会返回成功；用 task get 复核实际状态"},
 			})
 		},
 	}

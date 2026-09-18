@@ -33,16 +33,53 @@ DTO 上那条 `@Max` 只是宽松外壳，真正生效的是各任务自己的�
 ## modelCode 只对 4 类任务生效
 
 生效范围：`VIRTUAL_TRY_ON`、`VIRTUAL_TRY_ON_PRO`、`DETAIL_ENHANCEMENT`、`MODEL_THREE_VIEW`。
-**其余任务（含 `TXT2IMG` / `IMG2IMG`）传了会被后端丢弃**，模型由平台策略决定 —— 别向用户承诺"用某模型生成"。
+
+**其余任务（含 `TXT2IMG` / `IMG2IMG`）传了会被后端静默丢弃** —— 不报错、不警告，
+任务照样成功，但用的不是你指定的模型，而是平台策略选的。
+
+> **这是本文档里最容易骗到用户的一条。**
+> 用户说「用千谲网感 Pro 出一张图」，你给 `TXT2IMG` 带上
+> `modelCode=SEEDREAM_5_0_PRO`，命令成功、图也出来了，于是你回报
+> 「已用千谲网感 Pro 生成」—— 而实际根本没用。这属于向用户谎报。
+>
+> **正确做法**：用户点名了模型而任务类型又不吃 `modelCode` 时，必须二选一 ——
+> ① 改用吃 `modelCode` 的任务类型（上面那 4 类）来满足需求；
+> ② 如实告诉用户「该生成方式不支持指定模型，模型由平台选择」，**不要假装指定成功**。
+>
+> 想指定模型出图，用 `qianjue image-chat create`（对话生图）—— 它的 `modelCode`
+> 真实生效，见 [image-chat.md](image-chat.md)。
+
+**可选值、比例、分辨率一律以 `qianjue catalog models` 的实际返回为准。**
+下表只是给你认名字用的参照，**可能已经过时**——新增模型不会等这份文档更新。
+本表与 catalog 冲突时，**无条件信 catalog**，不要回头用本表的值去组请求。
 
 | modelCode | 用户可见名 |
 | --- | --- |
 | `NANO_BANANA_2` | 千谲快绘（默认） |
 | `NANO_BANANA_PRO` | 千谲质感 Pro |
 | `GPT_IMAGE_2` | 千谲灵感 Max |
+| `GPT_IMAGE_2_5_FLARE` | 千谲灵感 2.5 快速 |
+| `GPT_IMAGE_2_5_SUNBURST` | 千谲灵感 2.5 精修 |
 | `SEEDREAM_5_0_PRO` | 千谲网感 Pro |
+| `SEEDREAM_4_5` | 千谲网感 4.5 |
 
-可选值以 `qianjue catalog models` 实际返回为准（含每个模型允许的比例与分辨率）。
+**分辨率别硬编码**：每个模型允许的档位不一样，只能从 catalog 的
+`allowedOutputResolutions` 取，默认值取 `defaultOutputResolution`。
+当前实际情况（同样以 catalog 为准，这里只是提醒差异存在）：千谲灵感全系与网感全系
+**只开放 2K / 4K**；千谲快绘 / 质感 Pro 才有 1K。省略该字段时后端一律补 `2k`。
+
+> ⚠️ **目录不给 1K，不等于传了会报错。** 两条口径刻意不对称：
+> - **网感系（Seedream）传 `1k` 会被提交校验拒掉**，报「仅支持 2k、4k 输出分辨率」。
+> - **灵感系（GPT Image 全系）传 `1k` 目前仍会被接受并真的出 1K 图** —— 这是为了不打断
+>   详情图生成、画板等内部链路（它们写死 GPT 模型且允许 1K）而保留的兼容口子。
+>
+> 所以**你不能靠"传了会报错"来发现自己传错了**。规矩很简单：
+> **只用 catalog 的 `allowedOutputResolutions` 里有的值**，不要因为某个值没报错就以为它合法。
+> 用户没指定分辨率时，直接省略该字段让后端补默认值，别自己填 `1k`。
+
+**`postUpscaleEnabled`**（catalog 根级字段，不在单个模型里）：平台的「后置高清放大」
+总开关。为 `false` 时 4K 相关链路在当前环境不可用——catalog 里模型声明的 4K 是
+能力声明，不等于此刻能用。拿不准就先读这个字段，别直接承诺 4K。
 
 ## 全部 type 与所需输入图
 
@@ -71,9 +108,10 @@ DTO 上那条 `@Max` 只是宽松外壳，真正生效的是各任务自己的�
 | 画布类 | `CANVAS_ERASER` / `CANVAS_EXPAND` / `CANVAS_MULTI_ANGLE` / `CANVAS_MOVE_OBJECT` | 各有专属字段，先按最小集提交看报错 |
 
 **当前不可用**：
-- ~~对话生图只读不能建~~ **已支持创建**：用独立命令 `qianjue image-chat create`（不是 `image create` 的一个 type）。
-  它走另一套内核，请求字段也不同：`images[]` 用 `alias` + `oosUrl`，不是 `inputImages[].url`。
-  查询与等待走 `qianjue task get/wait image-chat <taskId>`。
+- ~~对话生图只读不能建~~ **已支持创建**，但它不是 `image create` 的一个 type，
+  而是独立命令 `qianjue image-chat create`：另一套内核、另一套字段
+  （`images[]` 用 `alias` + `oosUrl`，不是 `inputImages[].url`）。
+  **参数与各模型的二次约束见 [image-chat.md](image-chat.md)**，别套用本页的表。
 - `POSE_DUPLICATION`（姿势裂变）**后端未实现，已从上表移除**：参数校验会通过、任务也能建出来，
   但提交到 provider 时抛「姿势裂变任务暂未实现」，任务 FAILED、积分退回。
   **不要提交这个 type，也不要向用户承诺这个功能**；用户问起就说该能力尚未开放。
@@ -88,6 +126,7 @@ DTO 上那条 `@Max` 只是宽松外壳，真正生效的是各任务自己的�
 | --- | --- |
 | `IMAGE_CLEANUP` | 只收 `image` 类型；**传 prompt 直接报错**「洗图任务暂不支持自定义 prompt」；outputCount 只能 1 |
 | `BACKGROUND_REPLACEMENT` | **必须恰好 2 张**（主体 `model`/`image` + 背景 `background`/`scene_reference`）；**传 prompt 直接报错**；outputCount 只能 1 |
+| ↑ **用户只说了文字场景时怎么办** | 「把背景换成海边」这类需求**没有**背景图，而本任务既要 2 张图又禁 prompt，**用它必然失败**。两条出路：① 让用户提供一张海边参考图，再走 `BACKGROUND_REPLACEMENT`；② 用 `qianjue image-chat create`（对话生图）——它吃提示词，可以直接说「把背景换成海边」。**不要**为了凑格式去随便找一张图当背景，也不要把文字塞进 prompt 硬提交 |
 | `IMAGE_COLOR_RESTORE` | **必须恰好 2 张，且类型必须是 `target` + `reference` 各 1 张**（不是 `image`）；不能传 prompt；outputCount 只能 1 |
 | `DETAIL_ENHANCEMENT` | 默认走**单张模式**：必须 `model` + `mask` 两类，**prompt 必填**，且**不许出现** `face`/`hand`/`top`/`pants`/`whole_body` 参考图。要用参考图得走批量模式（`batchMode=true`，`model` 1~40 张） |
 | `MODEL_THREE_VIEW` | 需要平台侧配好 `DRAW_MODEL_THREE_VIEW_CN` 计费规则，否则报「计费规则未配置」 |
@@ -176,6 +215,12 @@ qianjue detail-image list --limit 20 --output json   # 轮询：最新在前，�
 | `aspectRatio` / `outputResolution` | 可选，整体比例与分辨率 |
 
 > 「上限 7 / 12」是**比例数组**的长度上限，不是张数上限 —— 别把它当成 `mainImageCount` 的校验。
+
+> **「给我出一套详情图」要先问张数。** `generationMode` 三个值里只有 `MAIN_IMAGE` 的张数是
+> 确定的（1 张）；`AUTO_PACKAGE` 的 `mainImageCount` / `detailImageCount` **没有默认值也没有
+> 上限校验**，你填几就出几、就扣几份钱。用户说「一套」是模糊量词，**不要自己替他定成 5+5**
+> 这类数字就提交。问清楚，或者给个建议值让他确认（例如主图 3 张 + 详情图 5 张），
+> 并在提交前把预计张数告诉他。`generationMode` 本身也没有默认值，必须显式传。
 
 ## 读取方式与别处不同
 

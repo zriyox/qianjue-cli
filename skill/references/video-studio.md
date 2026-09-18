@@ -3,6 +3,11 @@
 对应线上「视频剪辑」。两条链路都**必须先查模板**：`templateId` 提交时必填、模板由后台配置且会变，
 硬编码迟早失效。产出的是视频任务，用 `qianjue task get/wait video <taskId>` 轮询。
 
+> **没有「默认模板」这回事。** 模板列表按 `sortOrder` 返回，但平台**没有**标记哪个是默认。
+> 用户说「用默认模板」「随便挑一个」时，**不要自己拿第一项当默认就提交** —— 出片要花钱，
+> 选错了钱白花。正确做法是把模板列表（名称 + 说明）摆给用户让他挑；用户明确说了
+> 「你定就行」再挑第一项，并在回报里写清「已为你选用 `<名称>`」。
+
 ```bash
 qianjue video-studio koubo templates          # 口播模板
 qianjue video-studio smart-mix templates      # 混剪字幕模板

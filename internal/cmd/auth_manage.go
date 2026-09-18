@@ -61,16 +61,43 @@ func newAuthImportTokenCommand(app *appContext) *cobra.Command {
 				return clierr.AsCLIError(err)
 			}
 
-			data := map[string]any{
-				"profile":        resolved.ProfileName,
-				"credentialType": cred.TypePAT,
-				"imported":       true,
+			// 同 Profile 下的 Device Flow 记录必须清掉，否则这次导入不会生效：
+			// authflow.ResolveTokenSource 刻意让 Device Flow 优先于 PAT（契约见
+			// TestResolveTokenSourcePrecedence），于是请求继续用旧 Device Flow token，
+			// 而本命令已经报了 imported=true —— 旧会话失效时用户会陷入死循环：
+			// 导入新 PAT、CLI 报成功、请求照旧 401，且 auth status 也只显示 DEVICE_FLOW。
+			// 暂存记录一并清，否则下一次刷新会把 Device Flow 记录写回来。
+			// 反方向刻意不对称：auth login 不删 PAT —— Device Flow 随时能重新 login 拿回，
+			// 而 PAT 只在签发时可见一次，替用户销毁不可恢复的凭证是更大的错。
+			deviceFlowCleared := false
+			for _, account := range []string{
+				cred.DeviceFlowAccount(resolved.ProfileName),
+				cred.DeviceFlowStagingAccount(resolved.ProfileName),
+			} {
+				if _, gerr := store.Get(account); gerr != nil {
+					continue
+				}
+				if derr := store.Delete(account); derr != nil {
+					return clierr.AsCLIError(derr)
+				}
+				deviceFlowCleared = true
 			}
-			return app.printer.Success("auth.import-token", data, app.meta, [][2]string{
+
+			data := map[string]any{
+				"profile":           resolved.ProfileName,
+				"credentialType":    cred.TypePAT,
+				"imported":          true,
+				"deviceFlowCleared": deviceFlowCleared,
+			}
+			rows := [][2]string{
 				{"Profile", resolved.ProfileName},
 				{"Credential type", cred.TypePAT},
 				{"Imported", "true"},
-			})
+			}
+			if deviceFlowCleared {
+				rows = append(rows, [2]string{"Device Flow 凭证", "已清除（PAT 生效）"})
+			}
+			return app.printer.Success("auth.import-token", data, app.meta, rows)
 		},
 	}
 	c.Flags().StringVar(&tokenType, "type", "", "凭证类型，目前只支持 pat")

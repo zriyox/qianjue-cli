@@ -28,33 +28,65 @@
 
 ## modelCode 全表
 
+**先跑 `qianjue catalog video-models`，用它返回的清单，不要用下表。**
+下表只帮你认名字，**已知会过时**：模型上下架由后台控制，本文档不会跟着改。
+本表与 catalog 冲突时 **无条件信 catalog** —— 下表列出而 catalog 没返回的模型，
+在当前环境就是不可用，提交必失败。
+
 | modelCode | 用途 |
 | --- | --- |
 | `SEEDANCE_2_0` / `SEEDANCE_2_5` / `SEEDANCE_2_0_FAST` / `SEEDANCE_2_0_MINI` | 图生视频主力 |
 | `kling-v3-omni` | 可灵（走中台） |
-| `GEMINI_OMNI_FLASH` | Gemini |
-| `GROK_IMAGINE_1_5` | Grok |
+| `MINIMAX_H3` | MiniMax |
+| `GEMINI_OMNI_FLASH` | Gemini（**常被下架，必须先查 catalog**） |
+| `GROK_IMAGINE_1_5` | Grok（**常被下架，必须先查 catalog**） |
 | `VOLCANO_SUBTITLE_ERASE` | 字幕擦除 |
 | `VOLCANO_TRANSLATE` | 视频翻译 |
 | `VOLCANO_AD_AUDIT` | 广告审核 |
-| `VECTCUT_KOUBO_TEMPLATE` / `VECTCUT_SMART_MIX` | VectCut 模板剪辑 / 智能混剪 |
+| `VECTCUT_KOUBO_TEMPLATE` | VectCut 口播模板剪辑 |
+| `VECTCUT_SMART_MIX` | VectCut 智能混剪（**不在 `video create` 的模型目录里**，走 `qianjue video-studio smart-mix submit`，见 [video-studio.md](video-studio.md)）|
+
+**比例默认值别照抄任何静态说明**：从 catalog 的 `defaultAspectRatio` /
+`allowedAspectRatios` 取。当前实际情况是除 `VECTCUT_KOUBO_TEMPLATE` 是 `9:16` 外，
+其余模型 `defaultAspectRatio` 都是 `16:9` —— 用户要竖屏就显式传 `9:16`，
+别以为默认就是竖的。
+
+**`requiresPrompt` 按模型不同**：catalog 里该字段为 `true` 的模型（Seedance 全系 /
+可灵 / MiniMax）`prompt` 必填；火山系与 VectCut 为 `false`。别一律当必填或一律当选填。
 
 ## items[] 字段
 
-| 字段 | 约束 |
-| --- | --- |
-| `inputImageUrl` / `inputImageOosKey` | ≤1024 / ≤512，图生视频主图 |
-| `inputImages[]` | ≤20，多图展示列表 |
-| `referenceVideoUrl` / `referenceVideoOosKey` | 参考视频 / 待处理源视频 |
-| `durationSeconds` | **1~30**（火山系前端夹到 1~20） |
-| `aspectRatio` | ≤16 字符，如 `9:16` |
-| `quality` | ≤16，如 `480p` / `720p` |
-| `prompt` | **≤5000** |
-| `negativePrompt` | ≤2000 |
-| `extendFromTaskId` | ≤128，续写 |
-| `seedanceConfig` | Seedance 专用，如 `{"resolution":"480p"}` |
-| `omniConfig` | 可灵专用 |
-| `volcanoConfig` | 火山专用，见下节 |
+「必填」一列写的是 **DTO 层是否必填**；标「按模型」的要去 catalog 查该模型的字段
+（`requiresPrompt` / `allowedDurations`），不要一律当必填或一律当选填。
+
+| 字段 | 必填 | 约束 |
+| --- | --- | --- |
+| `inputImageUrl` / `inputImageOosKey` | 图生视频必填其一 | ≤1024 / ≤512，图生视频主图 |
+| `inputImages[]` | 否 | ≤20，多图展示列表 |
+| `referenceVideoUrl` / `referenceVideoOosKey` | 火山系 / 复刻类必填其一 | 参考视频 / 待处理源视频 |
+| `durationSeconds` | **按模型** | DTO 放到 **1~30**，但**各模型可选值不同，必须取 catalog 的 `allowedDurations`**。已知差异：`SEEDANCE_2_5` 实际 **4~30**（不是 1~30）、`MINIMAX_H3` 4~15、Seedance 其余三档只有 5/10/15、火山系 1/5/10/15/20 |
+| `aspectRatio` | 否（有默认） | ≤16 字符。**默认值取 catalog 的 `defaultAspectRatio`**，当前除 VectCut 口播是 `9:16` 外其余都是 `16:9`；要竖屏必须显式传。⚠️ **`SEEDANCE_2_5` 会忽略它**，见下方警告 |
+| `quality` | 否 | ≤16，如 `480p` / `720p`。省钱就取该模型最低档 |
+| `prompt` | **按模型** | ≤5000。catalog 里 `requiresPrompt=true` 的模型必填（Seedance 全系 / 可灵 / MiniMax），火山系与 VectCut 为 `false` |
+| `negativePrompt` | 否 | ≤2000 |
+| `extendFromTaskId` | 否 | ≤128，续写 |
+| `seedanceConfig` | 否 | Seedance 专用，如 `{"resolution":"480p"}`。内含 `generateAudio`（默认 `true`）—— **它只是允许模型出声，不保证有口播，见 SKILL.md 铁律 10** |
+| `omniConfig` | 否 | 可灵专用 |
+| `volcanoConfig` | 火山系必填 | 火山专用，见下节；字幕擦除必须带 `eraseType` |
+
+顶层 `sourceType` **必填**（见上面的顶层字段表），不传后端无法判断这是哪条链路。
+
+> ⚠️ **`SEEDANCE_2_5` + 只给一张首帧图时，你传的 `aspectRatio` 会被忽略** —— 上游按
+> `adaptive` 处理，**成片跟随输入图的比例**。实测：传 `aspectRatio=9:16` + 一张 1:1 方图，
+> 出来的是 `640×640` 方视频，而任务详情里 `aspectRatio` 仍显示 `9:16`。
+>
+> **所以只看任务 JSON 会误判。** 想要竖屏成片，三选一：
+> ① 输入图本身就是竖图（最可靠，比例跟着图走）；
+> ② 换用别的模型（Seedance 2.0 系 / 可灵 / MiniMax 不走这条 adaptive 规则）；
+> ③ 不给输入图做纯文生视频。
+>
+> 同理，`SEEDANCE_2_5` 带参考视频做 `edit` / `extend` 时比例与时长都跟随参考视频。
+> **回报给用户前请以实际文件为准**（`ffprobe` 或看首帧），别照抄请求参数说"已按竖屏生成"。
 
 **所有 URL 必须公网可达** —— 本地文件先 `qianjue asset upload`。
 
@@ -62,7 +94,7 @@
 
 | 线上功能 | sourceType | modelCode | 关键字段 |
 | --- | --- | --- | --- |
-| 视频生成 | `VIDEO_TASK` | Seedance / Kling / Gemini / Grok | `inputImageUrl` + `prompt` + `durationSeconds` |
+| 视频生成 | `VIDEO_TASK` | Seedance / Kling / MiniMax（Gemini / Grok 先查 catalog 在不在） | `inputImageUrl` + `prompt` + `durationSeconds` |
 | 口播视频生成 | `VIDEO_REVERSE_PROMPT` | 同上 | 同上（脚本先在 Web 端解析产出） |
 | 营销视频生成 | `TVC_ADS` | 同上 | 商品图 + 分镜 prompt |
 | 模特 / 商品替换 | `GESTURE_DANCE_REPLICA` | 同上 | 也可用专用端点 `video gesture-replica` |
@@ -82,7 +114,13 @@
 | `eraseSourceSubtitle` | 是否擦掉原字幕 |
 | `subtitleFontSize` | 硬字幕字号，像素 [1,80] |
 | `subtitleMarginL/R/V` | 硬字幕边距比例 [0,1)，**开硬字幕时必填** |
-| `eraseMode` / `eraseType` / `eraseLocations[]` | 擦除模式 / 类型 / 位置框 |
+| `eraseMode` | **`Auto` / `Manual`**（首字母大写）。`Auto` 自动找字幕，`Manual` 按你给的框擦 |
+| `eraseType` | **`Subtitle` / `Text`**（首字母大写）。只在 `eraseMode=Auto` 下有意义：`Subtitle` 只擦字幕，`Text` 擦画面里所有文字 |
+| `eraseLocations[]` | 擦除区域，`eraseMode=Manual` 时用；坐标是**相对视频宽高的 0~1 比例**，不是像素 |
+| `clipFilterMode` | **`Selected` / `Skip`**（首字母大写），配 `clipFilterClips[]` 指定只处理 / 跳过哪些时间段（单位秒） |
+
+> **这些值大小写敏感**，全是首字母大写的驼峰：`Subtitle` 不是 `subtitle`、`Auto` 不是 `auto`。
+> 传小写会被上游拒。`skillType` 同理：`Erase` / `AITranslation` / `AdAudit`。
 
 **素材要匹配任务**：字幕擦除要给**画面里真有硬字幕**的视频；翻译要给**真有语音或字幕**的视频。
 给一段无字幕无人声的片子，参数再对也会失败。
@@ -91,9 +129,9 @@
 
 | modelCode | durationSeconds | aspectRatio | 备注 |
 | --- | --- | --- | --- |
-| `VOLCANO_*` | 1~20 | 默认 `9:16` | 只发 `referenceVideo*` + `volcanoConfig`，**不发输入图** |
+| `VOLCANO_*` | 1/5/10/15/20 | **默认 `16:9`**（不是 9:16，以 catalog 为准） | 只发 `referenceVideo*` + `volcanoConfig`，**不发输入图** |
 | `GEMINI_OMNI_FLASH` | 3~10（默认 10） | 仅 `16:9` / `9:16` | **参考视频与 `extendFromTaskId` 互斥** |
-| Seedance 系 | 1~30 | 较自由 | 配 `seedanceConfig.resolution` |
+| Seedance 系 | **以 catalog `allowedDurations` 为准**（2.5 是 4~30，其余三档只有 5/10/15） | 较自由 | 配 `seedanceConfig.resolution` |
 
 ## 其它视频端点
 
@@ -134,7 +172,7 @@ qianjue video gesture-replica  --request x.json   # 模特 / 商品替换，字�
     "referenceVideoUrl": "https://…/source.mp4",
     "durationSeconds": 5,
     "aspectRatio": "9:16",
-    "volcanoConfig": { "skillType": "Erase", "eraseType": "subtitle" }
+    "volcanoConfig": { "skillType": "Erase", "eraseMode": "Auto", "eraseType": "Subtitle" }
   }]
 }
 ```

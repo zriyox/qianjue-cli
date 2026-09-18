@@ -9,7 +9,7 @@ description: 用 qianjue 命令行调用千谲 AI 平台生成图片和视频（
 
 本文写给 AI 助手：照此执行即可替用户完成生成任务。**参数以本文与 `references/` 为准，不要凭印象发明字段**；不确定时先跑 `qianjue <命令> --help`。
 
-## 铁律（先读这 8 条）
+## 铁律（先读这 10 条）
 
 1. **创建请求超时 / 中断 / 结果未知时，绝不换新 Idempotency-Key 重试**（批量同理：重跑 `image batch` 同一个 `--idempotency-key` 即可安全续上，每项的 Key 由「批次 Key + 序号」推导），也不要重跑 `create` —— 那会重复创建、重复扣费。唯一正确动作是 `resume`（见 [references/recovery.md](references/recovery.md)）。
 2. **必须判进程退出码**，别只看 stdout 有没有内容。
@@ -19,6 +19,20 @@ description: 用 qianjue 命令行调用千谲 AI 平台生成图片和视频（
 6. **本地文件不能直接当参数** —— 所有图片/视频 URL 必须公网可达，先 `qianjue asset upload`。
 7. **遇到退出码 16（`IDENTITY_REQUIRED`）交给用户做实名**，别代填身份证、别换账号绕（见第 7 节同款红线，细则 [references/identity.md](references/identity.md)）。
 8. **遇到退出码 15（`MODERATION_HOLD`）立刻停手，交给用户**。任务被内容审核拦住了，不是失败、不要重试、不要改提示词绕过、**更不要自己去申请审核或确认继续** —— 那是需要用户本人做的决定。照第 7 节转述给用户。
+9. **只照 `catalog` 的返回组请求，不要照本文的静态表。** 模型清单、可选时长、可选比例、
+   可选分辨率全部上下架可配，本文的表会过时。每次涉及模型 / 比例 / 分辨率 / 时长，先跑
+   `qianjue catalog models` 或 `qianjue catalog video-models`，**与本文冲突时无条件信 catalog**。
+   本文列出而 catalog 没返回的模型，在当前环境就是不可用，硬传必失败。
+10. **不要替用户承诺你没验证过的产出属性。** 尤其三种：
+    - **「有口播 / 有人声」** —— 图生视频的 `seedanceConfig.generateAudio` 默认 `true`，但
+      **出不出声、出什么声完全由模型决定**，它不是「配上你写的台词」。用户要的是真口播时，
+      走「口播视频生成」两步法或 `video-studio koubo submit`（见 [references/video-tasks.md](references/video-tasks.md)、
+      [references/video-studio.md](references/video-studio.md)），**不要把「口播」塞进 prompt 就说搞定了**。
+    - **「用了某某模型」** —— `modelCode` 只对部分任务生效，其余任务传了会被**静默丢弃**，
+      见 [references/image-tasks.md](references/image-tasks.md)。
+    - **「4K」** —— 受 catalog 根级 `postUpscaleEnabled` 约束，为 `false` 时 4K 链路当前不可用。
+
+    没验证就说「已按您要求完成」属于谎报。不确定时说清「这一步我无法保证 X」。
 
 ## 1. 检查安装
 
@@ -57,6 +71,18 @@ qianjue auth import-token --stdin --type pat < token.txt
 ```
 
 只能 stdin 导入，没有 `--token` 参数。凭证只进系统凭证库，**没有明文回退**（凭证库不可用 = 退出码 14）。
+
+> **导入 PAT 会清掉同 Profile 下原有的 Device Flow 凭证**（输出里的 `deviceFlowCleared` 会告诉你）
+> —— 这是故意的：两者共存时 Device Flow 优先，不清掉 PAT 就不会生效。反过来
+> `auth login` **不会**删 PAT（PAT 只在签发时可见一次，删了找不回）。
+
+> ⚠️ **你是不是跑在非交互环境里（CI / 后台进程 / 被别的程序调用）？那就先用 `QIANJUE_TOKEN`。**
+> 系统凭证库在非交互环境会**卡 10 秒然后超时**（退出码 14）——macOS 钥匙串在等一个没人会点的
+> 授权弹窗。**重试没用，每次都会超时。** 正确做法：
+> ```bash
+> export QIANJUE_TOKEN="<用户给的 PAT>"   # 优先级最高，完全绕开凭证库
+> ```
+> 别把时间花在排查钥匙串上，也别反复重试同一条命令。细节见第 8 节。
 
 > 上传素材需要 `asset.write` scope；老凭证可能没有，报退出码 4 就重新登录并申请。
 
@@ -117,6 +143,7 @@ qianjue video-studio smart-mix voices       # 混剪音色（voiceCode 从这里
 | 营销视频（TVC） | [references/tvc-ads.md](references/tvc-ads.md) |
 | 视频剪辑（口播 / 混剪） | [references/video-studio.md](references/video-studio.md) |
 | 图片：换装 / 抠图 / 放大 / 重绘 / 换背景 / 印花提取 / 换脸 / 三视图 / 文生图 / 图生图 / **详情图生成** | [references/image-tasks.md](references/image-tasks.md) |
+| 对话生图（`image-chat`，另一套字段） | [references/image-chat.md](references/image-chat.md) |
 | 视频：图生视频 / 口播 / 营销视频 / 模特商品替换 / 字幕擦除 / 视频翻译 / 剪辑 / 放大 | [references/video-tasks.md](references/video-tasks.md) |
 | 退出码、失败处理、未知结果恢复 | [references/recovery.md](references/recovery.md) |
 
@@ -131,6 +158,15 @@ qianjue video-studio smart-mix voices       # 混剪音色（voiceCode 从这里
 ```
 
 失败时 `ok:false` 且带 `error.kind`。排查问题把 `meta.traceId` 给用户，服务端可凭它查链路；加 `--trace` 可看请求阶段。**要解析就必须显式 `--output json`**，别去解析表格。
+
+> **查不到「这次扣了多少积分」—— 这是已知能力缺口，不要编数字。**
+> `task get` 的返回里**没有任何积分字段**（`data` 与 `data.extension` 都没有），CLI 也
+> **没有**查余额或流水的命令，Integration 通道同样没有开放积分端点。
+> 用户问花了多少时，如实说「CLI 当前查不到扣费明细，请在网页端的积分明细里看」，
+> **不要**从模型单价自己算一个数报给用户 —— 实际扣费受任务类型、时长、分辨率、张数、
+> 优惠策略多重影响，算出来的数大概率是错的。
+> 唯一能确定的两件事：① 任务 `FAILED` 时 `message` 会明说「积分已退回」；
+> ② 退出码 15（审核拦截）期间积分是**冻结未扣除**。
 
 ## 7. 内容审核拦截（退出码 15）
 

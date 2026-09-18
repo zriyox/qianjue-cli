@@ -98,7 +98,31 @@ func TestTaskCancelSuccess(t *testing.T) {
 	require.Equal(t, 0, exit)
 	assert.Equal(t, "PUT", gotMethod)
 	assert.Equal(t, "/integration/tasks/video/42/cancel", gotPath)
-	assert.Equal(t, true, decodeEnvelope(t, stdout).Data.(map[string]any)["cancelled"])
+	// 只断言「后端接受了这次请求并回了什么」，不再断言 cancelled 布尔 ——
+	// 见 TestTaskCancelMustNotClaimCancelledForAlreadyTerminalTask。
+	assert.Equal(t, "任务取消成功", decodeEnvelope(t, stdout).Data.(map[string]any)["message"])
+}
+
+// 后端对「已经是终态的任务」是幂等放行：照样返回 code=200 + "任务取消成功"，
+// 但任务其实一直是 COMPLETED、根本没被取消（2026-08-18 真实环境确认过的后端行为）。
+// CLI 此前把 cancelled 硬编码成 true，于是向用户谎报「已取消」——用户以为省下了积分，
+// 实际任务早就跑完扣过费了。这里要求 CLI 转述后端原话而不是自己下结论。
+func TestTaskCancelMustNotClaimCancelledForAlreadyTerminalTask(t *testing.T) {
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		// 后端幂等放行，文案与真取消时一致，CLI 无法从这里区分
+		fmt.Fprint(w, `{"code":200,"message":"操作成功","data":"任务取消成功"}`)
+	}))
+	defer srv.Close()
+
+	app, stdout, _ := imageApp(t, srv.URL)
+	exit := run(app, []string{"task", "cancel", "image", "77", "--output", "json"})
+	require.Equal(t, 0, exit)
+
+	data := decodeEnvelope(t, stdout).Data.(map[string]any)
+	assert.Equal(t, "任务取消成功", data["message"], "必须原样转述后端消息")
+	assert.NotContains(t, data, "cancelled",
+		"不得输出 cancelled 断言：后端对已终态任务也返回成功，CLI 无从判断是否真的取消了，"+
+			"硬编码 true 会让调用方以为任务停了、积分省下了")
 }
 
 func TestTaskCancelHTTP200Code500Fails(t *testing.T) {

@@ -144,6 +144,14 @@ func newImageBatchCommand(app *appContext) *cobra.Command {
 					return terr
 				}
 				deadline := time.Now().Add(timeout)
+				// 按 taskId 找回它在 results 里的位置，等到终态后回写状态 ——
+				// 否则输出里留的是提交那一刻的 PENDING，调用方会以为任务还没跑完。
+				indexByTaskID := make(map[string]int, len(results))
+				for i, r := range results {
+					if r.TaskID != "" {
+						indexByTaskID[r.TaskID] = i
+					}
+				}
 				for _, id := range taskIDs {
 					remaining := time.Until(deadline)
 					if remaining <= 0 {
@@ -153,8 +161,17 @@ func newImageBatchCommand(app *appContext) *cobra.Command {
 					fetch := task.Fetch(func(fctx context.Context) (json.RawMessage, string, error) {
 						return client.GetUnifiedTask(fctx, "image", id)
 					})
-					if _, werr := task.WaitFetch(cmd.Context(), fetch, "image/"+id,
-						remaining, app.printer, app.waitInterval); werr != nil {
+					final, werr := task.WaitFetch(cmd.Context(), fetch, "image/"+id,
+						remaining, app.printer, app.waitInterval)
+					if idx, ok := indexByTaskID[id]; ok {
+						if status := unifiedTaskStatus(final); status != "" {
+							results[idx].Status = status
+						}
+						if werr != nil {
+							results[idx].Error = werr.Error()
+						}
+					}
+					if werr != nil {
 						// 单个任务失败/被拦截不该让整批中断：记下来继续等后面的
 						app.printer.Progressf("任务 %s 未成功：%v", id, werr)
 						failed++
@@ -220,4 +237,19 @@ func imageCreateIdentity(res any) (string, string) {
 		return "", ""
 	}
 	return strings.TrimSpace(probe.Task.ID.String()), probe.Task.Status
+}
+
+// unifiedTaskStatus 从统一任务详情里取 status。等待结束后用它把终态回写进批量输出，
+// 避免调用方拿到的还是提交那一刻的 PENDING。解析不出就返回空串，由调用方保留原值。
+func unifiedTaskStatus(detail json.RawMessage) string {
+	if len(detail) == 0 {
+		return ""
+	}
+	var probe struct {
+		Status string `json:"status"`
+	}
+	if err := json.Unmarshal(detail, &probe); err != nil {
+		return ""
+	}
+	return strings.TrimSpace(probe.Status)
 }

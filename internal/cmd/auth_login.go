@@ -23,6 +23,7 @@ func newAuthCommand(app *appContext) *cobra.Command {
 func newAuthLoginCommand(app *appContext) *cobra.Command {
 	var scopes []string
 	var noOpen bool
+	var site string
 	c := &cobra.Command{
 		Use:   "login",
 		Short: "Device Flow 登录并将凭证存入系统凭证库",
@@ -44,6 +45,7 @@ func newAuthLoginCommand(app *appContext) *cobra.Command {
 			result, err := authflow.Login(cmd.Context(), client, store, app.printer, authflow.LoginOptions{
 				Profile:      resolved.ProfileName,
 				Scopes:       scopes,
+				Site:         site,
 				NoOpen:       noOpen,
 				PollInterval: app.loginPollInterval,
 				OpenBrowser:  app.openBrowser,
@@ -72,6 +74,7 @@ func newAuthLoginCommand(app *appContext) *cobra.Command {
 	}
 	c.Flags().StringArrayVar(&scopes, "scope", nil, "申请的 Integration Scope，可重复（默认 task.create/task.read/task.cancel）")
 	c.Flags().BoolVar(&noOpen, "no-open", false, "只打印授权 URL，不自动打开浏览器")
+	c.Flags().StringVar(&site, "site", "", "账号所属站点的用户端域名（合作伙伴站点用户必填，如 acme.example.com）；不填则在官方站授权")
 	return c
 }
 

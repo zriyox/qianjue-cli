@@ -61,8 +61,14 @@ qianjue config show --output table    # 带「(内置默认：生产)」标记 =
 ```bash
 qianjue auth login             # Device Flow：自动开浏览器，需用户本人点「确认授权」
 qianjue auth login --no-open   # 无图形界面时只打印 URL
+qianjue auth login --site acme.example.com   # 用户的账号属于某个合作伙伴站点时必须加
 qianjue auth status --output json
 ```
+
+**用户在哪个站点注册，就在哪个站点授权。** 用户的账号属于合作伙伴站点（不是官方站）时，
+必须带 `--site <该站点域名>`，否则授权页开在官方站，登进去的是另一个账号（同手机号在不同站点是不同账号），
+任务和扣费都会算到官方站。不确定就先问用户「你平时在哪个网址登录」。
+服务端返回的授权页不在该站点时 CLI 会中止（退出码 13），这时改用该站点网页端创建的 PAT。
 
 无浏览器 / 自动化用 PAT（用户在 Web 后台创建）：
 

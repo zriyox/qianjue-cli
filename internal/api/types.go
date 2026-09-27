@@ -37,6 +37,10 @@ type DeviceAuthCreateRequest struct {
 	ClientName string   `json:"clientName"`
 	DeviceName string   `json:"deviceName,omitempty"`
 	Scopes     []string `json:"scopes"`
+	// Site is the user-site domain the authorization page must open on.
+	// Empty keeps the official site (and is omitted, so older servers see
+	// exactly the old request).
+	Site string `json:"site,omitempty"`
 }
 
 // DeviceAuthCreateResult mirrors DeviceAuthCreateResult.java.

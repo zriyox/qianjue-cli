@@ -23,8 +23,12 @@ const defaultPollInterval = 2 * time.Second
 
 // LoginOptions controls one Device Flow login.
 type LoginOptions struct {
-	Profile      string
-	Scopes       []string
+	Profile string
+	Scopes  []string
+	// Site is the user-site domain of a partner (tenant) account. Phone numbers
+	// are only unique per site, so authorizing on the official site would sign
+	// the user in as a different, official-site account.
+	Site         string
 	NoOpen       bool
 	PollInterval time.Duration          // 0 → 2s
 	OpenBrowser  func(url string) error // nil → OpenBrowser
@@ -62,8 +66,14 @@ func Login(ctx context.Context, client *api.Client, store cred.Store, p *output.
 		ClientName: "Qianjue Integration CLI",
 		DeviceName: hostname,
 		Scopes:     scopes,
+		Site:       opts.Site,
 	})
 	if err != nil {
+		return nil, err
+	}
+	// Checked before the URL is shown or opened: a server that ignores Site
+	// (older version) would otherwise send a partner user to the official site.
+	if err := requirePageOnSite(created.AuthorizationURL, opts.Site); err != nil {
 		return nil, err
 	}
 

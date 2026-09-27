@@ -119,6 +119,30 @@ func TestAuthLoginCustomScopesSentToServer(t *testing.T) {
 	assert.Equal(t, []string{"task.read"}, gotScopes)
 }
 
+// 合作伙伴用户：--site 必须随创建请求发给服务端，授权页开在该站点。
+func TestAuthLoginSiteSentToServer(t *testing.T) {
+	var gotSite string
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if r.Method == http.MethodPost && r.URL.Path == "/integration/device-auth" {
+			var body api.DeviceAuthCreateRequest
+			require.NoError(t, jsonDecode(r, &body))
+			gotSite = body.Site
+			fmt.Fprint(w, `{"code":200,"message":"操作成功","data":{"deviceSessionId":"qj_ds_9","deviceCode":"qj_dc_9","authorizationUrl":"https://acme.example.com/integration/authorize","expiresAt":"2026-08-17 18:05:00","scopes":["task.read"]}}`)
+			return
+		}
+		fmt.Fprint(w, `{"code":200,"message":"操作成功","data":{"deviceSessionId":"qj_ds_9","status":"ACTIVE","expiresAt":"2026-09-16 18:00:00","authorizedAt":"2026-08-17 18:01:00","accessToken":"qj_at_s","accessTokenExpiresAt":"2026-08-17 20:00:00","refreshToken":"qj_rt_s","credentialsIssuedNow":true}}`)
+	}))
+	defer srv.Close()
+
+	app, _, _ := xdgApp(t, map[string]string{"QIANJUE_API_BASE_URL": srv.URL})
+	app.newStore = func() (cred.Store, error) { return cred.NewMemoryStore(), nil }
+	app.loginPollInterval = time.Millisecond
+
+	exit := run(app, []string{"auth", "login", "--no-open", "--site", "acme.example.com", "--output", "json"})
+	require.Equal(t, 0, exit)
+	assert.Equal(t, "acme.example.com", gotSite)
+}
+
 func jsonDecode(r *http.Request, out any) error {
 	defer r.Body.Close()
 	return json.NewDecoder(r.Body).Decode(out)

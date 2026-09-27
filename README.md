@@ -8,6 +8,14 @@ chmod +x qianjue && sudo mv qianjue /usr/local/bin/
 # 或：go install github.com/zriyox/qianjue-cli/cmd/qianjue@latest
 ```
 
+Windows PowerShell（一行安装）：
+
+```powershell
+$d="$env:LOCALAPPDATA\qianjue";ni $d -Force -ItemType Directory|Out-Null;curl.exe -fL "https://github.com/zriyox/qianjue-cli/releases/latest/download/qianjue-windows-amd64.exe" -o "$d\qianjue.exe";$p=[Environment]::GetEnvironmentVariable("Path","User");if(($p -split ';') -notcontains $d){[Environment]::SetEnvironmentVariable("Path",(($p,$d)-join ';'),"User")};& "$d\qianjue.exe" version
+```
+
+执行后请重新打开 PowerShell，即可直接使用 `qianjue`。
+
 - **完整安装指引（也是给 AI 助手读的）**：[`docs/install.md`](docs/install.md)
 - **内置 AI skill**：`qianjue skill show`（源文件 [`skill/SKILL.md`](skill/SKILL.md)）
 - 默认连生产环境 `https://api.aiqianjue.com/api/v1`；dev / test 需显式配置

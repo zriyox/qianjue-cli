@@ -174,10 +174,10 @@ qianjue video-studio smart-mix voices       # 混剪音色（voiceCode 从这里
 
 ```json
 { "ok": false, "error": { "kind": "MODERATION_HOLD",
-  "message": "任务 draw/8812 被内容审核拦截：图2：疑似含受限内容。任务仍保留、积分已冻结未扣除，未在 2026-09-10T14:22:00 前处理将自动取消并退积分。需要你本人决定：qianjue moderation submit-review 41207（申请人工审核）或 qianjue moderation cancel 41207（放弃并退积分）" } }
+  "message": "任务 draw/8812 被内容审核拦截（原因：图2：疑似含受限内容）。任务仍保留，积分已冻结未扣除；2026-09-10T14:22:00 前未处理将自动取消并退回积分。下一步：以下需要你本人操作：① 运行 `qianjue moderation submit-review 41207` 申请人工审核；② 在网页端点右上角「操作咨询」扫码联系客服，说明情况可加快审核；③ 平台审核通过后运行 `qianjue moderation confirm 41207` 继续生成。不想继续可运行 `qianjue moderation cancel 41207`，积分立即退回。" } }
 ```
 
-**你（AI 助手）该做的**：停止当前任务流 → 把拦截原因、命中的素材、记录号原样转述给用户 → 把下面两条命令交给用户**自己执行**。
+**你（AI 助手）该做的**：停止当前任务流 → 把拦截原因、命中的素材、记录号原样转述给用户 → 把 message 里「下一步」的命令交给用户**自己执行**，并**明确告诉用户去网页端右上角「操作咨询」扫码联系客服**（CLI 显示不了客服二维码，只能指路；申请审核后联系客服能加快处理）。
 
 **你不该做的**：
 - ❌ 自行执行 `moderation submit-review` 或 `moderation confirm`

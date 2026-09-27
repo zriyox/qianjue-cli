@@ -127,3 +127,18 @@ func TestWaitFetchModerationHoldMessageGuidesNextStep(t *testing.T) {
 		})
 	}
 }
+
+// 未申请审核时，除了命令还要告诉用户去哪找客服（网页端「操作咨询」）；
+// 同时把「现状」与「下一步」拆开，table 模式才能把下一步单独起一行。
+func TestWaitFetchModerationHoldPointsToSupportAndSplitsHint(t *testing.T) {
+	_, err := WaitFetch(context.Background(), heldFetch(""),
+		"draw/8812", time.Minute, newPrinter(), fastInterval)
+	ce := clierr.AsCLIError(err)
+	require.NotNil(t, ce)
+
+	assert.Contains(t, ce.Summary, "图2：疑似含受限内容")
+	assert.Contains(t, ce.Summary, "2026-09-10T14:22:00")
+	assert.Contains(t, ce.Hint, "「操作咨询」")
+	assert.Contains(t, ce.Hint, "submit-review 41207")
+	assert.Equal(t, ce.Summary+"。下一步："+ce.Hint, ce.Message, "JSON message 仍是整句")
+}

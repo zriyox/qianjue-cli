@@ -109,7 +109,11 @@ func (p *Printer) Failure(command string, err error, meta map[string]any) int {
 			fmt.Fprintln(p.stderr, "Error:", Redact(werr.Error()))
 		}
 	} else {
-		fmt.Fprintln(p.stderr, "Error:", Redact(ce.Error()))
+		// 有补救办法的错误把「下一步」单独起一行：挤在一整段报错里，人很容易只看到前半句
+		fmt.Fprintln(p.stderr, "Error:", Redact(ce.Headline()))
+		if ce.Hint != "" {
+			fmt.Fprintln(p.stderr, "下一步:", Redact(ce.Hint))
+		}
 	}
 	return ce.ExitCode
 }

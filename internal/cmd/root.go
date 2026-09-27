@@ -22,6 +22,7 @@ import (
 	"github.com/zriyox/qianjue-cli/internal/config"
 	"github.com/zriyox/qianjue-cli/internal/cred"
 	"github.com/zriyox/qianjue-cli/internal/output"
+	"github.com/zriyox/qianjue-cli/internal/qrterm"
 )
 
 // globalFlags carries the raw values of the global flags (cli-contract.md §5).
@@ -43,7 +44,10 @@ type appContext struct {
 	stdin   io.Reader
 	getenv  func(string) string
 	isTTY   func() bool
-	printer *output.Printer
+	// canDrawQR reports whether stderr is a terminal that can show a QR drawing
+	// (ANSI colors enabled). nil → never draw; tests opt in explicitly.
+	canDrawQR func() bool
+	printer   *output.Printer
 	meta    map[string]any // envelope meta for the running command (profile/apiBaseUrl/traceId/...)
 
 	// injectable seams (overridden by tests)
@@ -147,6 +151,19 @@ func stdoutIsTTY() bool {
 	return term.IsTerminal(int(os.Stdout.Fd()))
 }
 
+// stderrCanDrawQR: the QR drawing goes to stderr, so stderr — not stdout — must
+// be a terminal; `--output json` in a terminal still shows it. On Windows the
+// console must also accept ANSI escapes, or the drawing prints as garbage.
+func stderrCanDrawQR() bool {
+	fd := os.Stderr.Fd()
+	return term.IsTerminal(int(fd)) && qrterm.EnableANSI(fd)
+}
+
+// colorDisabled mirrors the printer's --no-color / NO_COLOR decision.
+func (app *appContext) colorDisabled() bool {
+	return app.flags.noColor || (app.getenv != nil && app.getenv("NO_COLOR") != "")
+}
+
 // commandPath converts cobra's "qianjue image create" into the envelope
 // command name "image.create" (cli-contract.md §21).
 func commandPath(c *cobra.Command) string {
@@ -174,8 +191,7 @@ func newRootCommand(app *appContext) *cobra.Command {
 			if err != nil {
 				return err
 			}
-			noColor := app.flags.noColor || app.getenv("NO_COLOR") != ""
-			app.printer = output.NewPrinter(app.stdout, app.stderr, format, app.flags.quiet, noColor)
+			app.printer = output.NewPrinter(app.stdout, app.stderr, format, app.flags.quiet, app.colorDisabled())
 			return nil
 		},
 	}
@@ -251,8 +267,9 @@ func Execute(args []string) int {
 		stderr: os.Stderr,
 		stdin:  os.Stdin,
 		getenv: os.Getenv,
-		isTTY:  stdoutIsTTY,
-		ctx:    ctx,
+		isTTY:     stdoutIsTTY,
+		canDrawQR: stderrCanDrawQR,
+		ctx:       ctx,
 	}
 	return run(app, args)
 }

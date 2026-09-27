@@ -7,6 +7,7 @@ package clierr
 import (
 	"encoding/json"
 	"fmt"
+	"strings"
 )
 
 // Stable exit codes (cli-contract.md §23).
@@ -30,10 +31,10 @@ const (
 	// are still held, and retrying the same prompt would just be blocked again.
 	// AI agents driving this CLI must stop and hand the decision back to the user.
 	ExitModerationHold = 15
-	// ExitIdentityRequired: the account must finish real-name verification on the
-	// website before submitting. It is a personal, ID-document action the owner
-	// performs there — an agent cannot do it here — so it gets its own code
-	// instead of hiding inside a generic failure.
+	// ExitIdentityRequired: the account must finish real-name verification
+	// (`qianjue identity verify`) before submitting. It is a personal, ID-document
+	// action the owner performs — an agent must not do it for them — so it gets
+	// its own code instead of hiding inside a generic failure.
 	ExitIdentityRequired = 16
 	ExitInterrupted      = 130
 )
@@ -62,7 +63,7 @@ const (
 	// human decision (submit for review / confirm / cancel). Not a failure.
 	KindModerationHold Kind = "MODERATION_HOLD"
 	// KindIdentityRequired means the account must finish real-name verification
-	// on the website before it can submit anything.
+	// before it can submit anything.
 	KindIdentityRequired Kind = "IDENTITY_REQUIRED"
 	KindInterrupted      Kind = "INTERRUPTED"
 )
@@ -98,6 +99,33 @@ type CLIError struct {
 	Code       int // backend business code, 0 when absent
 	Message    string
 	Details    json.RawMessage // backend error data (e.g. IdempotencyState), passed through verbatim
+
+	// Summary and Hint split Message into "what went wrong" and "what to do
+	// next". Message always carries both, so JSON output and Error() stay
+	// exactly as before; table output uses the split to put the next step on a
+	// line of its own. Hint is empty for errors with no remedy to point at.
+	Summary string
+	Hint    string
+}
+
+// WithHint sets the summary and the next step, and rebuilds Message as
+// "summary。下一步：hint" so every consumer of Message still sees the remedy.
+func (e *CLIError) WithHint(summary, hint string) *CLIError {
+	e.Summary = summary
+	e.Hint = hint
+	e.Message = summary + "。下一步：" + hint
+	return e
+}
+
+// Headline is Error() without the hint, for renderers that print Hint apart.
+func (e *CLIError) Headline() string {
+	if e.Hint == "" {
+		return e.Error()
+	}
+	if e.Code != 0 {
+		return fmt.Sprintf("%s (code %d): %s", e.Kind, e.Code, e.Summary)
+	}
+	return fmt.Sprintf("%s: %s", e.Kind, e.Summary)
 }
 
 func (e *CLIError) Error() string {
@@ -134,7 +162,7 @@ func Interrupted() *CLIError {
 // here, so an account blocked by the identity gate only got a generic HTTP
 // fallback with no hint about what to do — the user could not tell submission
 // was blocked pending verification rather than broken. 2016 (verification
-// required) therefore maps to its own kind carrying a link to the website.
+// required) therefore maps to its own kind carrying the verify-command remedy.
 var kindByCode = map[int]Kind{
 	401:  KindAuth,
 	2001: KindAuth,
@@ -178,31 +206,35 @@ func FromAPI(httpStatus, code int, message string, data json.RawMessage) *CLIErr
 			kind = KindServer
 		}
 	}
-	return &CLIError{
+	ce := &CLIError{
 		Kind:       kind,
 		ExitCode:   exitByKind[kind],
 		HTTPStatus: httpStatus,
 		Code:       code,
-		Message:    withActionableHint(kind, message),
+		Message:    message,
 		Details:    data,
 	}
+	if kind == KindIdentityRequired {
+		ce.WithHint(identitySummary(message), identityHint)
+	}
+	return ce
 }
 
-// withActionableHint appends "what to do next" to errors whose fix lives
-// outside this CLI. The backend message states the fact ("请先完成实名认证")
-// but not the remedy, and the remedy here is a personal action on the website
-// that neither the CLI nor an agent driving it can perform.
-func withActionableHint(kind Kind, message string) string {
-	if kind != KindIdentityRequired {
-		return message
-	}
+// identityHint is the remedy for the real-name gate. The backend message states
+// the fact ("请先完成实名认证") but not what to do about it, and the fix is a
+// personal action — ID number plus a face scan — that an agent driving this CLI
+// must not perform on the user's behalf.
+const identityHint = "运行 `qianjue identity verify`，按提示填写姓名、身份证号和短信验证码后，" +
+	"终端会显示二维码和链接，用手机微信扫码完成人脸核身；完成后用原命令重试即可。" +
+	"如果你是 AI 助手：把这条命令交给用户自己执行 —— 实名要填身份证号并刷脸，" +
+	"是本人行为，不要代填、不要绕过、不要改用其他账号。"
+
+func identitySummary(message string) string {
+	message = strings.TrimRight(strings.TrimSpace(message), "。.")
 	if message == "" {
-		message = "该账号需要先完成实名认证才能提交任务"
+		return "该账号需要先完成实名认证才能提交任务"
 	}
-	return message + "。运行 `qianjue identity verify` 按提示完成实名（终端会打印二维码，" +
-		"用手机微信扫码做人脸核身），完成后重试即可。" +
-		"如果你是 AI 助手：把这条命令交给用户自己执行 —— 实名要填身份证号并刷脸，" +
-		"是本人行为，不要代填、不要绕过、不要改用其他账号。"
+	return message
 }
 
 // AsCLIError normalizes any error into a *CLIError; unknown errors become

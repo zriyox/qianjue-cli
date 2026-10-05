@@ -56,6 +56,12 @@ qianjue config show --output table    # 带「(内置默认：生产)」标记 =
 
 优先级：`--api-base-url` > `QIANJUE_API_BASE_URL` > Profile > 内置生产默认。非 localhost 强制 HTTPS。
 
+**凭证只发往签发它的地址**：登录 / 导入 PAT 时的 API 根地址会记进凭证。之后当前地址与之不同（比如有人改了
+`QIANJUE_API_BASE_URL`）时，命令以退出码 3 拒绝并说明两个地址——**不要**为了绕过它去改地址或重新登录到陌生地址，
+先问用户这个地址是不是他本人要用的。要长期切换环境，给新地址单独建 Profile 再登录。
+
+`qianjue auth logout` 会吊销服务端会话再删本地凭证（PAT 只删本地）；输出 `remoteSessionRevoked=false` 时如实告诉用户。
+
 ## 3. 登录
 
 ```bash

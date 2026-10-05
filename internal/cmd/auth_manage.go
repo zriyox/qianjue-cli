@@ -1,14 +1,19 @@
 package cmd
 
 import (
+	"context"
 	"io"
 	"strings"
 	"time"
 
 	"github.com/spf13/cobra"
 
+	"github.com/zriyox/qianjue-cli/internal/api"
+	"github.com/zriyox/qianjue-cli/internal/authflow"
 	"github.com/zriyox/qianjue-cli/internal/clierr"
+	"github.com/zriyox/qianjue-cli/internal/config"
 	"github.com/zriyox/qianjue-cli/internal/cred"
+	"github.com/zriyox/qianjue-cli/internal/output"
 )
 
 // maxTokenBytes bounds the stdin read; real PATs are well under this.
@@ -56,7 +61,8 @@ func newAuthImportTokenCommand(app *appContext) *cobra.Command {
 			if err != nil {
 				return err
 			}
-			rec := &cred.Record{CredentialType: cred.TypePAT, AccessToken: token}
+			// 绑定当前 API 地址：之后只发往这里，被改掉的 --api-base-url 带不走它
+			rec := &cred.Record{CredentialType: cred.TypePAT, AccessToken: token, APIBaseURL: resolved.APIBaseURL}
 			if err := store.Set(cred.PATAccount(resolved.ProfileName), rec); err != nil {
 				return clierr.AsCLIError(err)
 			}
@@ -195,7 +201,7 @@ func newAuthStatusCommand(app *appContext) *cobra.Command {
 func newAuthLogoutCommand(app *appContext) *cobra.Command {
 	return &cobra.Command{
 		Use:   "logout",
-		Short: "删除当前 Profile 的本地凭证（后端无 Device Flow 撤销接口，不声称远程撤销）",
+		Short: "吊销当前 Profile 的 Device Flow 服务端会话并删除本地凭证（PAT 只删本地，到网页端管理）",
 		Args:  cobra.NoArgs,
 		RunE: func(cmd *cobra.Command, args []string) error {
 			resolved, err := app.resolveConfig()
@@ -206,6 +212,9 @@ func newAuthLogoutCommand(app *appContext) *cobra.Command {
 			if err != nil {
 				return err
 			}
+
+			// 先吊销、后删本地：吊销要用本地凭证。失败也照常删本地，但如实报告
+			remoteRevoked, remoteErr := app.revokeDeviceFlowSession(cmd.Context(), resolved, store)
 
 			removed := false
 			for _, account := range []string{
@@ -226,13 +235,19 @@ func newAuthLogoutCommand(app *appContext) *cobra.Command {
 			data := map[string]any{
 				"profile":                resolved.ProfileName,
 				"localCredentialRemoved": removed,
-				"remoteSessionRevoked":   false,
+				"remoteSessionRevoked":   remoteRevoked,
 			}
-			return app.printer.Success("auth.logout", data, app.meta, [][2]string{
+			rows := [][2]string{
 				{"Profile", resolved.ProfileName},
 				{"Local credential removed", boolString(removed)},
-				{"Remote session revoked", "false"},
-			})
+				{"Remote session revoked", boolString(remoteRevoked)},
+			}
+			if remoteErr != "" {
+				data["remoteRevokeError"] = remoteErr
+				rows = append(rows, [2]string{"Remote revoke error", remoteErr})
+				app.printer.Progressf("服务端会话未吊销（%s）；本地凭证已删除，服务端会话将在到期后自然失效", remoteErr)
+			}
+			return app.printer.Success("auth.logout", data, app.meta, rows)
 		},
 	}
 }
@@ -242,4 +257,27 @@ func boolString(b bool) string {
 		return "true"
 	}
 	return "false"
+}
+
+// revokeDeviceFlowSession revokes the profile's Device Flow session on the
+// server (auth-device-flow.md §9.1). It reports false with a reason instead of
+// failing: logout must still remove the local credential. PATs are not revoked
+// here — the same PAT may still be in use on a server or in CI.
+func (app *appContext) revokeDeviceFlowSession(ctx context.Context, resolved *config.Resolved, store cred.Store) (bool, string) {
+	rec, err := store.Get(cred.DeviceFlowAccount(resolved.ProfileName))
+	if err != nil || rec.CredentialType != cred.TypeDeviceFlow || rec.AccessToken == "" {
+		return false, ""
+	}
+	// 吊销请求同样带着凭证：签发地址与当前地址不同就不发
+	if err := authflow.RequireBoundTo(rec, resolved.APIBaseURL); err != nil {
+		return false, "凭证签发地址与当前 API 根地址不同，未发送吊销请求"
+	}
+	traceID := api.NewTraceID()
+	refreshClient := api.NewClient(resolved.APIBaseURL, resolved.HTTPTimeout, nil, traceID, nil)
+	tokens := authflow.NewDeviceFlowTokenSource(store, app.getenv, resolved.ProfileName, refreshClient)
+	client := api.NewClient(resolved.APIBaseURL, resolved.HTTPTimeout, tokens, traceID, nil)
+	if _, err := client.RevokeCurrentSession(ctx); err != nil {
+		return false, output.Redact(clierr.AsCLIError(err).Message)
+	}
+	return true, ""
 }

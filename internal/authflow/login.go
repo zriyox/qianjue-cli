@@ -110,7 +110,7 @@ func Login(ctx context.Context, client *api.Client, store cred.Store, p *output.
 		}
 
 		if poll.CredentialsIssuedNow {
-			return persistIssuedCredentials(store, opts.Profile, created, poll)
+			return persistIssuedCredentials(store, opts.Profile, client.BaseURL(), created, poll)
 		}
 
 		switch poll.Status {
@@ -135,7 +135,7 @@ func Login(ctx context.Context, client *api.Client, store cred.Store, p *output.
 // persistIssuedCredentials writes the one-time credentials to the store before
 // any success output. A persistence failure is unrecoverable for this session
 // because the backend never returns the plaintext again.
-func persistIssuedCredentials(store cred.Store, profile string, created *api.DeviceAuthCreateResult, poll *api.DeviceAuthPollResult) (*LoginResult, error) {
+func persistIssuedCredentials(store cred.Store, profile, apiBaseURL string, created *api.DeviceAuthCreateResult, poll *api.DeviceAuthPollResult) (*LoginResult, error) {
 	if poll.AccessToken == "" || poll.RefreshToken == "" {
 		return nil, clierr.New(clierr.KindAuth,
 			"签发响应缺少凭证明文，请重新执行 qianjue auth login")
@@ -146,6 +146,7 @@ func persistIssuedCredentials(store cred.Store, profile string, created *api.Dev
 		RefreshToken:   poll.RefreshToken,
 		SessionID:      poll.DeviceSessionID,
 		Scopes:         created.Scopes,
+		APIBaseURL:     apiBaseURL,
 	}
 	if poll.AccessTokenExpiresAt != nil {
 		rec.AccessTokenExpiresAt = poll.AccessTokenExpiresAt.Time

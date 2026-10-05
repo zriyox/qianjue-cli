@@ -175,6 +175,20 @@ func ValidateBaseURL(raw string) error {
 	}
 }
 
+// SameAPIBaseURL reports whether two API roots address the same endpoint:
+// scheme and host compare case-insensitively and a trailing slash is ignored;
+// everything else (port, path) must match exactly.
+func SameAPIBaseURL(a, b string) bool {
+	ua, errA := url.Parse(strings.TrimSpace(a))
+	ub, errB := url.Parse(strings.TrimSpace(b))
+	if errA != nil || errB != nil || ua.Host == "" || ub.Host == "" {
+		return strings.TrimSpace(a) == strings.TrimSpace(b)
+	}
+	return strings.EqualFold(ua.Scheme, ub.Scheme) &&
+		strings.EqualFold(ua.Host, ub.Host) &&
+		strings.TrimSuffix(ua.Path, "/") == strings.TrimSuffix(ub.Path, "/")
+}
+
 // Overrides carries the command-line values that participate in precedence.
 type Overrides struct {
 	Profile     string

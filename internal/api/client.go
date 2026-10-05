@@ -88,6 +88,9 @@ type Client struct {
 	retryDelay time.Duration                    // GET retry backoff base; shrunk in tests
 }
 
+// BaseURL is the API root this client sends requests to.
+func (c *Client) BaseURL() string { return c.baseURL }
+
 // NewClient builds a client. tokens may be nil for anonymous-only usage;
 // tracef may be nil to disable trace logging.
 func NewClient(baseURL string, httpTimeout time.Duration, tokens TokenSource, traceID string, tracef func(string, ...any)) *Client {

@@ -75,6 +75,8 @@ func (b *e2eBackend) handler(w http.ResponseWriter, r *http.Request) {
 	case r.Method == http.MethodPut && r.URL.Path == "/integration/image-tasks/2045019196159766531/cancel":
 		b.cancelled.Store(true)
 		fmt.Fprint(w, `{"code":200,"message":"操作成功","data":"任务取消成功"}`)
+	case r.Method == http.MethodPost && r.URL.Path == "/integration/sessions/current/revoke":
+		fmt.Fprint(w, `{"code":200,"message":"操作成功","data":{"sessionId":"qj_ds_e2e","status":"REVOKED","alreadyInactive":false}}`)
 	default:
 		b.t.Errorf("unexpected %s %s", r.Method, r.URL.Path)
 	}
@@ -180,10 +182,10 @@ func TestEndToEndLifecycle(t *testing.T) {
 	require.Equal(t, 0, exit)
 	assert.True(t, backend.cancelled.Load())
 
-	// 7. logout：只删本地
+	// 7. logout：先吊销服务端会话，再删本地
 	exit, out = s.exec("auth", "logout", "--output", "json")
 	require.Equal(t, 0, exit)
-	assert.Contains(t, out, `"remoteSessionRevoked": false`)
+	assert.Contains(t, out, `"remoteSessionRevoked": true`)
 	_, err = s.store.Get(cred.DeviceFlowAccount("local"))
 	assert.ErrorIs(t, err, cred.ErrNotFound)
 

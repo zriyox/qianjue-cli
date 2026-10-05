@@ -2,6 +2,7 @@ package authflow
 
 import (
 	"context"
+	"fmt"
 	"strings"
 	"time"
 
@@ -74,18 +75,38 @@ func ResolveTokenSource(getenv config.Getenv, newStore func() (cred.Store, error
 	if err != nil {
 		return nil, err
 	}
+	// The binding is checked here, before any token (including the refresh
+	// token a later rotation would send) can reach refreshClient's host.
 	if rec, err := store.Get(cred.DeviceFlowAccount(profile)); err == nil {
 		if rec.CredentialType == cred.TypeDeviceFlow && rec.RefreshToken != "" {
+			if err := RequireBoundTo(rec, refreshClient.BaseURL()); err != nil {
+				return nil, err
+			}
 			return NewDeviceFlowTokenSource(store, getenv, profile, refreshClient), nil
 		}
 	} else if err != cred.ErrNotFound {
 		return nil, clierr.AsCLIError(err)
 	}
 	if rec, err := store.Get(cred.PATAccount(profile)); err == nil {
+		if err := RequireBoundTo(rec, refreshClient.BaseURL()); err != nil {
+			return nil, err
+		}
 		return NewStaticTokenSource(rec.AccessToken), nil
 	} else if err != cred.ErrNotFound {
 		return nil, clierr.AsCLIError(err)
 	}
 	return nil, clierr.New(clierr.KindAuth,
 		"当前 Profile 没有可用凭证：先执行 qianjue auth login，或通过 stdin 导入 PAT（qianjue auth import-token --type pat --stdin），或设置 QIANJUE_TOKEN")
+}
+
+// RequireBoundTo refuses to use a credential against an API root other than
+// the one it was issued for. Records from older CLIs carry no binding and are
+// accepted; they gain one on the next login or PAT import.
+func RequireBoundTo(rec *cred.Record, apiBaseURL string) error {
+	if rec == nil || rec.APIBaseURL == "" || config.SameAPIBaseURL(rec.APIBaseURL, apiBaseURL) {
+		return nil
+	}
+	return clierr.New(clierr.KindAuth, fmt.Sprintf(
+		"当前 Profile 的凭证签发自 %s，而当前 API 根地址是 %s；为防止凭证被发往其它服务器，已拒绝使用。"+
+			"若确实要切换地址，请为新地址单独建 Profile 并重新登录", rec.APIBaseURL, apiBaseURL))
 }

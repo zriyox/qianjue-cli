@@ -23,13 +23,24 @@ import (
 
 // siteTestServer answers device-auth create with the given authorization URL and
 // records the create body; polling returns an issued credential immediately.
+// It behaves like a server that predates the site echo.
 func siteTestServer(t *testing.T, authorizationURL string, createBody *map[string]any, polls *atomic.Int32) *httptest.Server {
+	return siteEchoTestServer(t, authorizationURL, "", createBody, polls)
+}
+
+// siteEchoTestServer is siteTestServer for a server that echoes the site it
+// accepted (empty echo = field absent, like an older server).
+func siteEchoTestServer(t *testing.T, authorizationURL, echo string, createBody *map[string]any, polls *atomic.Int32) *httptest.Server {
 	return httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		switch {
 		case r.Method == http.MethodPost && r.URL.Path == "/integration/device-auth":
 			raw, _ := io.ReadAll(r.Body)
 			require.NoError(t, json.Unmarshal(raw, createBody))
-			fmt.Fprintf(w, `{"code":200,"message":"ok","data":{"deviceSessionId":"qj_ds_1","deviceCode":"qj_dc_1","authorizationUrl":%q,"expiresAt":"2026-08-17 18:05:00","scopes":["task.read"]}}`, authorizationURL)
+			site := ""
+			if echo != "" {
+				site = fmt.Sprintf(`,"site":%q`, echo)
+			}
+			fmt.Fprintf(w, `{"code":200,"message":"ok","data":{"deviceSessionId":"qj_ds_1","deviceCode":"qj_dc_1","authorizationUrl":%q,"expiresAt":"2026-08-17 18:05:00","scopes":["task.read"]%s}}`, authorizationURL, site)
 		case r.Method == http.MethodGet && r.URL.Path == "/integration/device-auth/qj_ds_1":
 			polls.Add(1)
 			fmt.Fprint(w, pollResp("ACTIVE", true))
@@ -111,4 +122,35 @@ func TestLoginWithoutSiteOmitsField(t *testing.T) {
 	_, present := body["site"]
 	assert.False(t, present)
 	assert.Len(t, opened, 1)
+}
+
+// 官方站的写法（www / 裸域）与服务端默认授权页主机名可能不同：服务端回显了认可的站点，
+// 说明它校验过 --site，CLI 应放行，而不是把官方用户当成「旧服务端忽略了 --site」拦下。
+func TestLoginTrustsServerThatEchoesTheRequestedSite(t *testing.T) {
+	var body map[string]any
+	var polls atomic.Int32
+	srv := siteEchoTestServer(t, "https://aiqianjue.com/integration/authorize?deviceSessionId=qj_ds_1",
+		"www.aiqianjue.com", &body, &polls)
+	defer srv.Close()
+
+	var opened []string
+	_, err := runSiteLogin(t, srv.URL, "https://WWW.aiqianjue.com/", &opened)
+	require.NoError(t, err)
+	assert.Len(t, opened, 1)
+}
+
+// 回显的站点与声明的不同：服务端在别的站点上处理了请求，仍须中止。
+func TestLoginRefusesEchoOfAnotherSite(t *testing.T) {
+	var body map[string]any
+	var polls atomic.Int32
+	srv := siteEchoTestServer(t, "https://other.example.com/integration/authorize?deviceSessionId=qj_ds_1",
+		"other.example.com", &body, &polls)
+	defer srv.Close()
+
+	var opened []string
+	_, err := runSiteLogin(t, srv.URL, "acme.example.com", &opened)
+	require.Error(t, err)
+	assert.Equal(t, clierr.KindServer, clierr.AsCLIError(err).Kind)
+	assert.Empty(t, opened)
+	assert.Zero(t, polls.Load())
 }

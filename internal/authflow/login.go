@@ -73,7 +73,7 @@ func Login(ctx context.Context, client *api.Client, store cred.Store, p *output.
 	}
 	// Checked before the URL is shown or opened: a server that ignores Site
 	// (older version) would otherwise send a partner user to the official site.
-	if err := requirePageOnSite(created.AuthorizationURL, opts.Site); err != nil {
+	if err := requirePageOnSite(created.AuthorizationURL, created.Site, opts.Site); err != nil {
 		return nil, err
 	}
 

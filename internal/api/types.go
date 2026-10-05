@@ -50,6 +50,9 @@ type DeviceAuthCreateResult struct {
 	AuthorizationURL string   `json:"authorizationUrl"`
 	ExpiresAt        *APITime `json:"expiresAt"`
 	Scopes           []string `json:"scopes"`
+	// Site is the site host the server accepted for the request's site; empty
+	// when no site was requested or the server predates the field.
+	Site string `json:"site"`
 }
 
 // DeviceAuthPollResult mirrors DeviceAuthPollResult.java. accessToken and

@@ -73,7 +73,8 @@ qianjue skill install --dir <路径>  # 显式指定目录（会创建）
 qianjue config profile create local --api-base-url 'http://localhost:7777/api/v1'
 qianjue config profile use local
 
-# 2. Device Flow 登录（浏览器确认授权，凭证进系统凭证库）
+# 2. Device Flow 登录：终端会显示验证码（如 BKTW-QZHM），在浏览器授权页输入它确认授权，凭证进系统凭证库。
+#    不要把授权链接或验证码发给别人——对方输入后就能用你的账号和积分。
 qianjue auth login
 
 # 3. 创建图片任务（Idempotency-Key 自动生成并先落本地请求日志）

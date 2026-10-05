@@ -77,6 +77,7 @@ func Login(ctx context.Context, client *api.Client, store cred.Store, p *output.
 		return nil, err
 	}
 
+	printUserCode(p, created.UserCode)
 	p.Progressf("请在浏览器中确认授权: %s", created.AuthorizationURL)
 	if created.ExpiresAt != nil && !created.ExpiresAt.IsZero() {
 		p.Progressf("授权链接 %s 过期（约 %s 后）", created.ExpiresAt.Format(time.RFC3339),
@@ -130,6 +131,17 @@ func Login(ctx context.Context, client *api.Client, store cred.Store, p *output.
 			return nil, clierr.New(clierr.KindAuth, fmt.Sprintf("未知 Device Flow 状态 %q，登录终止", poll.Status))
 		}
 	}
+}
+
+// printUserCode shows the verification code the browser page asks for. Shown on
+// stderr only (never in the JSON result) and printed before the link so it is
+// the first thing the user sees. An empty code (older server) prints nothing.
+func printUserCode(p *output.Printer, userCode string) {
+	if userCode == "" {
+		return
+	}
+	p.Progressf("验证码: %s", userCode)
+	p.Progressf("在浏览器授权页输入上面的验证码完成登录。不要把授权链接或验证码发给任何人。")
 }
 
 // persistIssuedCredentials writes the one-time credentials to the store before

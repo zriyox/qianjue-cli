@@ -53,6 +53,10 @@ type DeviceAuthCreateResult struct {
 	// Site is the site host the server accepted for the request's site; empty
 	// when no site was requested or the server predates the field.
 	Site string `json:"site"`
+	// UserCode is the short code (e.g. BKTW-QZHM) the user must type on the
+	// browser authorization page. It is never part of AuthorizationURL, so a
+	// forwarded link alone cannot be used to authorize this CLI.
+	UserCode string `json:"userCode"`
 }
 
 // DeviceAuthPollResult mirrors DeviceAuthPollResult.java. accessToken and

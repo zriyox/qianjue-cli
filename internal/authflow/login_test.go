@@ -19,7 +19,7 @@ import (
 	"github.com/zriyox/qianjue-cli/internal/output"
 )
 
-const createResp = `{"code":200,"message":"操作成功","data":{"deviceSessionId":"qj_ds_1","deviceCode":"qj_dc_1","authorizationUrl":"http://localhost:3000/integration/authorize?deviceSessionId=qj_ds_1","expiresAt":"2026-08-17 18:05:00","scopes":["task.create","task.read","task.cancel"]}}`
+const createResp = `{"code":200,"message":"操作成功","data":{"deviceSessionId":"qj_ds_1","deviceCode":"qj_dc_1","authorizationUrl":"http://localhost:3000/integration/authorize?deviceSessionId=qj_ds_1","expiresAt":"2026-08-17 18:05:00","scopes":["task.create","task.read","task.cancel"],"userCode":"BKTW-QZHM"}}`
 
 func pollResp(status string, issued bool) string {
 	tokens := `"accessToken":null,"accessTokenExpiresAt":null,"refreshToken":null`
@@ -95,6 +95,8 @@ func TestLoginHappyPathPersistsBeforeSuccess(t *testing.T) {
 	assert.Contains(t, stderr.String(), "integration/authorize")
 	assert.NotContains(t, stderr.String(), "qj_at_new")
 	assert.NotContains(t, stderr.String(), "qj_dc_1")
+	// 验证码必须显示在终端：浏览器授权页要求手输它，链接被转发时对方没有这个码
+	assert.Contains(t, stderr.String(), "BKTW-QZHM")
 }
 
 func TestLoginActiveWithoutTokenFailsSafely(t *testing.T) {
@@ -160,4 +162,16 @@ func TestLoginInterrupted(t *testing.T) {
 	})
 	require.Error(t, err)
 	assert.Equal(t, clierr.ExitInterrupted, clierr.AsCLIError(err).ExitCode)
+}
+
+// 旧服务端不返回 userCode 时不打印空验证码行（打出「验证码：」后面空着只会让用户困惑）。
+func TestLoginWithoutUserCodeDoesNotPrintEmptyCodeLine(t *testing.T) {
+	var stderr bytes.Buffer
+	p := output.NewPrinter(&bytes.Buffer{}, &stderr, output.FormatJSON, false, true)
+	printUserCode(p, "")
+	assert.Empty(t, stderr.String())
+
+	printUserCode(p, "BKTW-QZHM")
+	assert.Contains(t, stderr.String(), "BKTW-QZHM")
+	assert.Contains(t, stderr.String(), "不要")
 }

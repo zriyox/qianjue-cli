@@ -13,12 +13,9 @@ func (c *Client) ListKouboTemplates(ctx context.Context) (json.RawMessage, error
 	return c.videoStudioGet(ctx, "/integration/video-studio/koubo/templates")
 }
 
-// SubmitKouboTask calls POST /integration/video-studio/koubo/tasks, sending
-// rawJSON verbatim. The result is a VIDEO-domain task; poll it with
-// `qianjue task wait video <taskId>`.
-func (c *Client) SubmitKouboTask(ctx context.Context, rawJSON []byte) (json.RawMessage, error) {
-	return c.videoStudioPost(ctx, "/integration/video-studio/koubo/tasks", rawJSON)
-}
+// Submitting a koubo / smart-mix task goes through CreateVideoTask with
+// VideoKindKoubo / VideoKindSmartMix: the server requires an Idempotency-Key and
+// the CLI journals the request first, exactly like the other video creates.
 
 // ListSmartMixTemplates calls GET /integration/video-studio/smart-mix/templates.
 func (c *Client) ListSmartMixTemplates(ctx context.Context) (json.RawMessage, error) {
@@ -30,24 +27,8 @@ func (c *Client) ListSmartMixVoices(ctx context.Context) (json.RawMessage, error
 	return c.videoStudioGet(ctx, "/integration/video-studio/smart-mix/voices")
 }
 
-// SubmitSmartMixTask calls POST /integration/video-studio/smart-mix/tasks.
-func (c *Client) SubmitSmartMixTask(ctx context.Context, rawJSON []byte) (json.RawMessage, error) {
-	return c.videoStudioPost(ctx, "/integration/video-studio/smart-mix/tasks", rawJSON)
-}
-
 func (c *Client) videoStudioGet(ctx context.Context, path string) (json.RawMessage, error) {
 	res, err := c.do(ctx, http.MethodGet, path, nil, nil, true)
-	if err != nil {
-		return nil, err
-	}
-	if err := res.Err(); err != nil {
-		return nil, err
-	}
-	return res.Data, nil
-}
-
-func (c *Client) videoStudioPost(ctx context.Context, path string, body []byte) (json.RawMessage, error) {
-	res, err := c.do(ctx, http.MethodPost, path, nil, body, true)
 	if err != nil {
 		return nil, err
 	}

@@ -6,7 +6,6 @@ import (
 	"github.com/spf13/cobra"
 
 	"github.com/zriyox/qianjue-cli/internal/api"
-	"github.com/zriyox/qianjue-cli/internal/idem"
 )
 
 func newVideoStudioCommand(app *appContext) *cobra.Command {
@@ -42,25 +41,9 @@ func newKouboCommand(app *appContext) *cobra.Command {
 		},
 	}
 
-	var requestPath string
-	submit := &cobra.Command{
-		Use:   "submit",
-		Short: "提交口播成片任务",
-		Args:  cobra.NoArgs,
-		RunE: func(cmd *cobra.Command, args []string) error {
-			body, client, err := app.readRequestAndClient(requestPath)
-			if err != nil {
-				return err
-			}
-			raw, err := client.SubmitKouboTask(cmd.Context(), body)
-			if err != nil {
-				return err
-			}
-			return app.printer.Success("video-studio.koubo.submit", raw, app.meta, videoTaskSubmitRows(raw))
-		},
-	}
-	submit.Flags().StringVar(&requestPath, "request", "", "请求 JSON 文件路径；- 表示 stdin（必填）")
-	_ = submit.MarkFlagRequired("request")
+	// 与其它视频创建同一套：带 Idempotency-Key、先写本地请求日志、结果不明自动恢复，可用 video resume 续上
+	submit := newVideoCreateCommandWith(app, api.VideoKindKoubo, "submit", "提交口播成片任务",
+		videoCreateOptions{commandName: "video-studio.koubo.submit", flatResult: true})
 
 	k.AddCommand(templates, submit)
 	return k
@@ -103,53 +86,12 @@ func newSmartMixCommand(app *appContext) *cobra.Command {
 		},
 	}
 
-	var requestPath string
-	submit := &cobra.Command{
-		Use:   "submit",
-		Short: "提交智能混剪任务",
-		Long:  "草稿生成费与云渲染导出费分别冻结、各阶段独立结算。",
-		Args:  cobra.NoArgs,
-		RunE: func(cmd *cobra.Command, args []string) error {
-			body, client, err := app.readRequestAndClient(requestPath)
-			if err != nil {
-				return err
-			}
-			raw, err := client.SubmitSmartMixTask(cmd.Context(), body)
-			if err != nil {
-				return err
-			}
-			return app.printer.Success("video-studio.smart-mix.submit", raw, app.meta, videoTaskSubmitRows(raw))
-		},
-	}
-	submit.Flags().StringVar(&requestPath, "request", "", "请求 JSON 文件路径；- 表示 stdin（必填）")
-	_ = submit.MarkFlagRequired("request")
+	submit := newVideoCreateCommandWith(app, api.VideoKindSmartMix, "submit", "提交智能混剪任务",
+		videoCreateOptions{commandName: "video-studio.smart-mix.submit", flatResult: true})
+	submit.Long = "草稿生成费与云渲染导出费分别冻结、各阶段独立结算。"
 
 	s.AddCommand(templates, voices, submit)
 	return s
-}
-
-// readRequestAndClient reads the request document and returns an authed client,
-// the pair every video-studio submit needs.
-func (a *appContext) readRequestAndClient(requestPath string) ([]byte, *api.Client, error) {
-	resolved, err := a.resolveConfig()
-	if err != nil {
-		return nil, nil, err
-	}
-	if err := resolved.RequireAPIBaseURL(); err != nil {
-		return nil, nil, err
-	}
-	raw, err := readRequestDocument(a, requestPath)
-	if err != nil {
-		return nil, nil, err
-	}
-	if err := idem.CheckRequestObject(raw); err != nil {
-		return nil, nil, err
-	}
-	client, err := a.newAuthedClient(resolved)
-	if err != nil {
-		return nil, nil, err
-	}
-	return raw, client, nil
 }
 
 // stylingClientOrAuthed returns an authed client for plain read commands.

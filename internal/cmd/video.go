@@ -30,7 +30,23 @@ func newVideoCommand(app *appContext) *cobra.Command {
 	return video
 }
 
+// videoCreateOptions customizes how a create command reports. The video-studio
+// submits keep their pre-existing JSON shape (data.taskId at the top level) and
+// command names, which automations already parse.
+type videoCreateOptions struct {
+	commandName string // envelope "command"; default "video.<use>"
+	flatResult  bool   // data = create response + idempotencyKey/historical
+}
+
 func newVideoCreateCommand(app *appContext, kind api.VideoKind, use, short string) *cobra.Command {
+	return newVideoCreateCommandWith(app, kind, use, short, videoCreateOptions{})
+}
+
+func newVideoCreateCommandWith(app *appContext, kind api.VideoKind, use, short string, opts videoCreateOptions) *cobra.Command {
+	commandName := opts.commandName
+	if commandName == "" {
+		commandName = "video." + use
+	}
 	var requestPath, idemKey, waitTimeout string
 	var wait bool
 	c := &cobra.Command{
@@ -112,9 +128,12 @@ func newVideoCreateCommand(app *appContext, kind api.VideoKind, use, short strin
 				if werr != nil {
 					return werr
 				}
-				return printVideoResult(app, "video."+use, finalRaw, key, true)
+				return printVideoResult(app, commandName, finalRaw, key, true)
 			}
-			return printVideoResult(app, "video."+use, raw, key, false)
+			if opts.flatResult {
+				return printFlatVideoResult(app, commandName, raw, key)
+			}
+			return printVideoResult(app, commandName, raw, key, false)
 		},
 	}
 	c.Flags().StringVar(&requestPath, "request", "", "请求 JSON 文件路径；- 表示 stdin（必填）")
@@ -301,5 +320,27 @@ func printVideoResult(app *appContext, command string, result json.RawMessage, k
 	if len(probe.TaskIDs) > 0 {
 		rows = append(rows, [2]string{"Task count", fmt.Sprintf("%d", len(probe.TaskIDs))})
 	}
+	return app.printer.Success(command, data, meta, rows)
+}
+
+// printFlatVideoResult keeps a create response's own fields at the top of data
+// (video-studio submits always returned {taskId}) and only adds the
+// idempotency key, so existing parsers of data.taskId keep working.
+func printFlatVideoResult(app *appContext, command string, result json.RawMessage, key string) error {
+	data := map[string]any{}
+	var fields map[string]json.RawMessage
+	if json.Unmarshal(result, &fields) == nil {
+		for name, value := range fields {
+			data[name] = value
+		}
+	}
+	data["idempotencyKey"] = key
+	data["historical"] = false
+	meta := app.meta
+	if meta == nil {
+		meta = map[string]any{}
+	}
+	meta["httpStatus"] = 200
+	rows := append([][2]string{{"Idempotency-Key", key}}, videoTaskSubmitRows(result)...)
 	return app.printer.Success(command, data, meta, rows)
 }

@@ -16,8 +16,17 @@ import (
 )
 
 // DefaultScopes are requested when the user passes no --scope flags
-// (cli-contract.md §9).
-var DefaultScopes = []string{"task.create", "task.read", "task.cancel"}
+// (cli-contract.md §9). They match the full set a web-issued token gets:
+// asset.write is needed by "asset upload" (local images) and profile.read by
+// "identity status"; requesting only task.* left browser logins unable to
+// upload, with no hint short of listing every scope via --scope.
+var DefaultScopes = []string{"profile.read", "task.create", "task.read", "task.cancel", "asset.read", "asset.write"}
+
+// rateLimitedCode is the server code for "too many requests" (HTTP 429).
+const rateLimitedCode = 2110
+
+// maxRateLimitedInterval caps the poll back-off after rate limiting.
+const maxRateLimitedInterval = 10 * time.Second
 
 const defaultPollInterval = 2 * time.Second
 
@@ -99,6 +108,15 @@ func Login(ctx context.Context, client *api.Client, store cred.Store, p *output.
 		poll, err := client.PollDeviceAuth(ctx, created.DeviceSessionID, created.DeviceCode)
 		if err != nil {
 			ce := clierr.AsCLIError(err)
+			// 2110：轮询被限流，放慢节奏继续等，不打断登录
+			if ce.Code == rateLimitedCode {
+				interval *= 2
+				if interval > maxRateLimitedInterval {
+					interval = maxRateLimitedInterval
+				}
+				p.Progressf("轮询过于频繁，%s 后继续", interval)
+				continue
+			}
 			// 2103：轮询与签发/过期标记的 CAS 竞争，服务端语义是“请重新轮询”。
 			if ce.Code == 2103 {
 				p.Progressf("轮询遇并发更新，继续重试")

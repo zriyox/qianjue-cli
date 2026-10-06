@@ -102,7 +102,8 @@ qianjue auth import-token --type pat --stdin < token.txt  # 脚本 / CI：从文
 > ```
 > 别把时间花在排查钥匙串上，也别反复重试同一条命令。细节见第 8 节。
 
-> 上传素材需要 `asset.write` scope；老凭证可能没有，报退出码 4 就重新登录并申请。
+> 上传素材需要 `asset.write`、查实名状态需要 `profile.read`。v0.6.2 起 `qianjue auth login` 默认就申请全部权限；
+> 更早登录的凭证可能缺这两个，报退出码 4（权限不足）时让用户重新执行 `qianjue auth login`，不要自己拼 `--scope`。
 
 ## 4. 核心工作流
 

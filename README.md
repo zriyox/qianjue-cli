@@ -85,11 +85,14 @@ qianjue image get <taskId>
 qianjue image cancel <taskId>
 ```
 
-PAT 方式（CI/自动化，只允许 stdin 导入）：
+PAT 方式（令牌在网页「个人中心 → 命令行与 API」生成）：
 
 ```bash
-read -rsp 'PAT: ' P; printf '%s' "$P" | qianjue auth import-token --type pat --stdin; unset P
+qianjue auth import-token --type pat        # 终端里：运行后按提示粘贴令牌，输入不显示
+some-secret-tool | qianjue auth import-token --type pat --stdin   # 脚本 / CI：从管道传入
 ```
+
+令牌永远不作为命令参数传入（会进 shell 历史与进程列表）。
 
 ## 命令树
 

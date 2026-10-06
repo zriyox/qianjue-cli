@@ -19,34 +19,59 @@ import (
 // maxTokenBytes bounds the stdin read; real PATs are well under this.
 const maxTokenBytes = 4096
 
+// normalizePastedToken trims whitespace and a leading UTF-8 BOM. Windows
+// PowerShell 5.1 on a UTF-8 console prepends EF BB BF to text piped into a
+// native program, so a correct qj_pat_ token arrived as "\uFEFFqj_pat_..." and
+// was rejected as not starting with qj_pat_ (reproduced 2026-10-06).
+func normalizePastedToken(raw string) string {
+	return strings.TrimSpace(strings.TrimPrefix(strings.TrimSpace(raw), "\uFEFF"))
+}
+
 func newAuthImportTokenCommand(app *appContext) *cobra.Command {
 	var tokenType string
 	var fromStdin bool
 	c := &cobra.Command{
 		Use:   "import-token",
-		Short: "从 stdin 导入 Personal Access Token（不回显）",
+		Short: "导入 Personal Access Token（终端里按提示粘贴、不回显；脚本里用 --stdin 管道传入）",
 		Args:  cobra.NoArgs,
 		RunE: func(cmd *cobra.Command, args []string) error {
 			if tokenType != "pat" {
 				return clierr.Usage("--type 只支持 pat（收到 %q）", tokenType)
 			}
-			if !fromStdin {
-				return clierr.Usage("PAT 只能通过 stdin 导入：qianjue auth import-token --type pat --stdin")
+			// 令牌永远不进命令参数（会留在 shell 历史与进程列表里）：
+			// 脚本用 --stdin 管道传入；人在终端里运行时由 CLI 提示粘贴，输入不回显。
+			// 网页引导曾让用户「先复制令牌、再复制命令 | qianjue ... --stdin」，复制命令那一下
+			// 就把剪贴板里的令牌覆盖了 —— 所以终端场景改为先运行命令、看到提示再复制粘贴令牌。
+			interactive := !fromStdin && app.stdinIsTerminal != nil && app.stdinIsTerminal() && app.readSecret != nil
+			if !fromStdin && !interactive {
+				return clierr.Usage("请在终端中运行 qianjue auth import-token --type pat 后按提示粘贴令牌；脚本中请通过管道传入并加 --stdin")
 			}
 			resolved, err := app.resolveConfig()
 			if err != nil {
 				return err
 			}
 
-			raw, err := io.ReadAll(io.LimitReader(app.stdin, maxTokenBytes+1))
-			if err != nil {
-				return clierr.Usage("读取 stdin 失败: %v", err)
+			var raw string
+			if interactive {
+				secret, rerr := app.readSecret("粘贴令牌后回车（输入不会显示）: ")
+				if rerr != nil {
+					return clierr.Usage("读取输入失败: %v", rerr)
+				}
+				raw = secret
+			} else {
+				data, rerr := io.ReadAll(io.LimitReader(app.stdin, maxTokenBytes+1))
+				if rerr != nil {
+					return clierr.Usage("读取 stdin 失败: %v", rerr)
+				}
+				raw = string(data)
 			}
 			if len(raw) > maxTokenBytes {
-				return clierr.Usage("stdin 内容超过 %d 字节，不是合法 PAT", maxTokenBytes)
+				return clierr.Usage("输入内容超过 %d 字节，不是合法 PAT", maxTokenBytes)
 			}
-			token := strings.TrimSpace(string(raw))
+			token := normalizePastedToken(raw)
 			switch {
+			case token == "" && interactive:
+				return clierr.Usage("没有收到令牌：请粘贴 qj_pat_ 开头的令牌后回车")
 			case token == "":
 				return clierr.Usage("stdin 为空：请把 PAT 通过管道写入 stdin")
 			case strings.HasPrefix(token, "qj_rt_"):
@@ -107,7 +132,7 @@ func newAuthImportTokenCommand(app *appContext) *cobra.Command {
 		},
 	}
 	c.Flags().StringVar(&tokenType, "type", "", "凭证类型，目前只支持 pat")
-	c.Flags().BoolVar(&fromStdin, "stdin", false, "从 stdin 读取 Token（必填）")
+	c.Flags().BoolVar(&fromStdin, "stdin", false, "从 stdin 管道读取 Token（脚本用；在终端里可省略，运行后按提示粘贴）")
 	_ = c.MarkFlagRequired("type")
 	return c
 }

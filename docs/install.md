@@ -115,8 +115,11 @@ qianjue auth login --no-open      # 只打印 URL，让用户在自己电脑上�
 **自动化 / 无浏览器场景**：让用户在千谲 Web 后台创建 Personal Access Token（`qj_pat_` 开头），然后
 
 ```bash
-qianjue auth import-token --stdin --type pat        # 从 stdin 读，不回显、不进 shell 历史
+qianjue auth import-token --type pat        # 运行后提示「粘贴令牌后回车」：再让用户复制令牌、粘贴、回车（输入不显示）
 ```
+
+> 顺序很重要：**先运行命令，看到提示后再复制令牌**。先复制令牌、再复制命令，会让命令把剪贴板里的令牌覆盖掉。
+> 脚本 / CI 没有终端时改用管道：`... | qianjue auth import-token --type pat --stdin`。
 
 确认状态：
 

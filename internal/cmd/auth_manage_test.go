@@ -309,3 +309,56 @@ func TestImportTokenBindsCredentialToAPIBaseURL(t *testing.T) {
 	require.NoError(t, err)
 	assert.Equal(t, "https://api.example.test/api/v1", rec.APIBaseURL)
 }
+
+// Windows PowerShell 5.1 在 UTF-8 控制台下往外部程序传文本时会在开头加 BOM（EF BB BF），
+// 用户剪贴板里明明是 qj_pat_ 开头的令牌，CLI 却报「PAT 必须以 qj_pat_ 开头」（2026-10-06 实测复现）。
+func TestImportTokenStripsByteOrderMark(t *testing.T) {
+	store := cred.NewMemoryStore()
+	app, _, stderr := xdgApp(t, nil)
+	withStore(app, store)
+	app.stdin = bytes.NewReader([]byte("\uFEFFqj_pat_with_bom\r\n"))
+
+	exit := run(app, []string{"auth", "import-token", "--type", "pat", "--stdin", "--output", "json"})
+	require.Equal(t, 0, exit, "stderr: %s", stderr.String())
+
+	rec, err := store.Get(cred.PATAccount("default"))
+	require.NoError(t, err)
+	assert.Equal(t, "qj_pat_with_bom", rec.AccessToken)
+}
+
+// 在终端里不带 --stdin 运行时，CLI 自己提示粘贴令牌（输入不回显），不再依赖剪贴板管道：
+// 网页引导里「先复制令牌、再复制命令」会让命令把剪贴板里的令牌覆盖掉。
+func TestImportTokenPromptsForTokenInTerminal(t *testing.T) {
+	store := cred.NewMemoryStore()
+	app, stdout, stderr := xdgApp(t, nil)
+	withStore(app, store)
+	var prompted string
+	app.stdinIsTerminal = func() bool { return true }
+	app.readSecret = func(prompt string) (string, error) {
+		prompted = prompt
+		return "\uFEFF qj_pat_typed_in \r\n", nil
+	}
+
+	exit := run(app, []string{"auth", "import-token", "--type", "pat", "--output", "json"})
+	require.Equal(t, 0, exit, "stderr: %s", stderr.String())
+
+	assert.Contains(t, prompted, "粘贴令牌")
+	rec, err := store.Get(cred.PATAccount("default"))
+	require.NoError(t, err)
+	assert.Equal(t, "qj_pat_typed_in", rec.AccessToken)
+	assert.NotContains(t, stdout.String(), "qj_pat_typed_in", "不得回显 PAT")
+	assert.NotContains(t, stderr.String(), "qj_pat_typed_in")
+}
+
+func TestImportTokenPromptRejectsEmptyInput(t *testing.T) {
+	store := cred.NewMemoryStore()
+	app, _, _ := xdgApp(t, nil)
+	withStore(app, store)
+	app.stdinIsTerminal = func() bool { return true }
+	app.readSecret = func(string) (string, error) { return "  \r\n", nil }
+
+	exit := run(app, []string{"auth", "import-token", "--type", "pat"})
+	assert.Equal(t, clierr.ExitUsage, exit)
+	_, err := store.Get(cred.PATAccount("default"))
+	assert.Error(t, err, "空输入不得写入凭证")
+}

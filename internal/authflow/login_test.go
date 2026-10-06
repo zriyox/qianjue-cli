@@ -3,6 +3,7 @@ package authflow
 import (
 	"bytes"
 	"context"
+	"encoding/json"
 	"fmt"
 	"net/http"
 	"net/http/httptest"
@@ -174,4 +175,44 @@ func TestLoginWithoutUserCodeDoesNotPrintEmptyCodeLine(t *testing.T) {
 	printUserCode(p, "BKTW-QZHM")
 	assert.Contains(t, stderr.String(), "BKTW-QZHM")
 	assert.Contains(t, stderr.String(), "不要")
+}
+
+// 网页授权登录默认申请的权限要和网页上生成的令牌一致（6 个）：只申请 task.* 时
+// asset upload 缺 asset.write、查实名状态缺 profile.read，用户只能自己拼 --scope。
+func TestLoginRequestsTheSameScopesAsAWebToken(t *testing.T) {
+	var requested []string
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		switch {
+		case r.Method == http.MethodPost && r.URL.Path == "/integration/device-auth":
+			var body struct {
+				Scopes []string `json:"scopes"`
+			}
+			require.NoError(t, json.NewDecoder(r.Body).Decode(&body))
+			requested = body.Scopes
+			fmt.Fprint(w, createResp)
+		case r.Method == http.MethodGet && r.URL.Path == "/integration/device-auth/qj_ds_1":
+			fmt.Fprint(w, pollResp("ACTIVE", true))
+		default:
+			t.Errorf("unexpected %s %s", r.Method, r.URL.Path)
+		}
+	}))
+	defer srv.Close()
+
+	_, err, _ := runLogin(t, srv.URL, cred.NewMemoryStore())
+	require.NoError(t, err)
+	assert.Equal(t, []string{"profile.read", "task.create", "task.read", "task.cancel", "asset.read", "asset.write"},
+		requested)
+}
+
+// 轮询被服务端限流（2110 / HTTP 429）时退避后继续，不能让一次限流把登录打断。
+func TestLoginKeepsPollingWhenRateLimited(t *testing.T) {
+	srv := loginTestServer(t, []string{
+		`HTTP429 {"code":2110,"message":"slow","data":null}`,
+		pollResp("ACTIVE", true),
+	})
+	defer srv.Close()
+
+	res, err, _ := runLogin(t, srv.URL, cred.NewMemoryStore())
+	require.NoError(t, err)
+	assert.Equal(t, "qj_ds_1", res.SessionID)
 }

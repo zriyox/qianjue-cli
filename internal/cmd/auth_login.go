@@ -72,7 +72,7 @@ func newAuthLoginCommand(app *appContext) *cobra.Command {
 			})
 		},
 	}
-	c.Flags().StringArrayVar(&scopes, "scope", nil, "申请的 Integration Scope，可重复（默认 task.create/task.read/task.cancel）")
+	c.Flags().StringArrayVar(&scopes, "scope", nil, "申请的 Integration Scope，可重复（默认与网页令牌一致：profile.read/task.create/task.read/task.cancel/asset.read/asset.write）")
 	c.Flags().BoolVar(&noOpen, "no-open", false, "只打印授权 URL，不自动打开浏览器")
 	c.Flags().StringVar(&site, "site", "", "账号所属站点的用户端域名（合作伙伴站点用户必填，如 acme.example.com）；不填则在官方站授权")
 	return c

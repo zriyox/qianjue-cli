@@ -29,6 +29,11 @@ qianjue video-studio smart-mix voices         # 混剪音色（voiceCode 从这�
 
 `videoUrl` / `templateId` / `title` / `durationSeconds` 四个必填。
 
+提交与其它视频创建同一套幂等机制（口播、混剪都适用）：自动生成 Idempotency-Key（也可 `--idempotency-key` 指定）、
+先写本地请求日志，网络断开等结果不明时自动按原 Key 恢复；中途退出用 `qianjue video resume --idempotency-key <key>`
+续上，**不要换新 Key 重新提交**（会重复建任务、重复扣积分）。输出里 `data.taskId` 是视频任务 ID，
+`data.idempotencyKey` 留着备查；加 `--wait` 可提交后直接等成片。
+
 ## 智能混剪 `smart-mix submit`
 
 `inputMode` 决定哪些字段**必须有、哪些必须没有**，组合错了会报

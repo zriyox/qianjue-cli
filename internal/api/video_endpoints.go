@@ -16,15 +16,23 @@ const (
 	VideoKindEdit           VideoKind = "edit"            // video editing
 	VideoKindUpscale        VideoKind = "upscale"         // video upscale
 	VideoKindGestureReplica VideoKind = "gesture-replica" // gesture dance replica
+	// Video studio submits share the video idempotency scope on the server, so
+	// they ride the same journal / recovery / `video resume` machinery.
+	VideoKindKoubo    VideoKind = "koubo"     // video studio: talking-head edit
+	VideoKindSmartMix VideoKind = "smart-mix" // video studio: smart mix
 )
 
 // videoPath returns the sub-resource path for a video kind. The batch kind uses
 // the collection root; the others append their sub-resource segment.
 func videoPath(kind VideoKind) string {
-	if kind == VideoKindCreate {
+	switch kind {
+	case VideoKindCreate:
 		return "/integration/video-tasks"
+	case VideoKindKoubo, VideoKindSmartMix:
+		return "/integration/video-studio/" + string(kind) + "/tasks"
+	default:
+		return "/integration/video-tasks/" + string(kind)
 	}
-	return "/integration/video-tasks/" + string(kind)
 }
 
 // CreateVideoTask calls POST /integration/video-tasks[/<kind>] with the

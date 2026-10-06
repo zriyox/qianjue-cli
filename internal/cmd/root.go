@@ -38,17 +38,23 @@ type globalFlags struct {
 
 // appContext is the per-invocation dependency container handed to commands.
 type appContext struct {
-	flags   *globalFlags
-	stdout  io.Writer
-	stderr  io.Writer
-	stdin   io.Reader
-	getenv  func(string) string
-	isTTY   func() bool
+	flags  *globalFlags
+	stdout io.Writer
+	stderr io.Writer
+	stdin  io.Reader
+	getenv func(string) string
+	isTTY  func() bool
 	// canDrawQR reports whether stderr is a terminal that can show a QR drawing
 	// (ANSI colors enabled). nil → never draw; tests opt in explicitly.
 	canDrawQR func() bool
-	printer   *output.Printer
-	meta    map[string]any // envelope meta for the running command (profile/apiBaseUrl/traceId/...)
+	// stdinIsTerminal reports whether stdin is an interactive terminal, so commands
+	// may prompt instead of requiring piped input. nil → never a terminal (tests).
+	stdinIsTerminal func() bool
+	// readSecret prints prompt to stderr and reads one line from the terminal
+	// without echo. nil → interactive prompting unavailable.
+	readSecret func(prompt string) (string, error)
+	printer    *output.Printer
+	meta       map[string]any // envelope meta for the running command (profile/apiBaseUrl/traceId/...)
 
 	// injectable seams (overridden by tests)
 	ctx               context.Context
@@ -149,6 +155,21 @@ func (app *appContext) resolveConfig() (*config.Resolved, error) {
 
 func stdoutIsTTY() bool {
 	return term.IsTerminal(int(os.Stdout.Fd()))
+}
+
+func stdinIsTTY() bool {
+	return term.IsTerminal(int(os.Stdin.Fd()))
+}
+
+// readSecretFromTerminal prompts on stderr and reads a line with echo disabled,
+// so a pasted secret never appears on screen or in shell history.
+func readSecretFromTerminal(stderr io.Writer) func(string) (string, error) {
+	return func(prompt string) (string, error) {
+		fmt.Fprint(stderr, prompt)
+		secret, err := term.ReadPassword(int(os.Stdin.Fd()))
+		fmt.Fprintln(stderr)
+		return string(secret), err
+	}
 }
 
 // stderrCanDrawQR: the QR drawing goes to stderr, so stderr — not stdout — must
@@ -262,14 +283,17 @@ func Execute(args []string) int {
 	ctx, stop := signal.NotifyContext(context.Background(), os.Interrupt, syscall.SIGTERM)
 	defer stop()
 	app := &appContext{
-		flags:  &globalFlags{},
-		stdout: os.Stdout,
-		stderr: os.Stderr,
-		stdin:  os.Stdin,
-		getenv: os.Getenv,
+		flags:     &globalFlags{},
+		stdout:    os.Stdout,
+		stderr:    os.Stderr,
+		stdin:     os.Stdin,
+		getenv:    os.Getenv,
 		isTTY:     stdoutIsTTY,
 		canDrawQR: stderrCanDrawQR,
 		ctx:       ctx,
+
+		stdinIsTerminal: stdinIsTTY,
+		readSecret:      readSecretFromTerminal(os.Stderr),
 	}
 	return run(app, args)
 }

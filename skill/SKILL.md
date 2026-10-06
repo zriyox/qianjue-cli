@@ -83,10 +83,12 @@ qianjue auth status --output json
 无浏览器 / 自动化用 PAT（用户在 Web 后台创建）：
 
 ```bash
-qianjue auth import-token --stdin --type pat < token.txt
+qianjue auth import-token --type pat                      # 用户在自己的终端里运行，看到提示后粘贴令牌（不显示）
+qianjue auth import-token --type pat --stdin < token.txt  # 脚本 / CI：从文件或管道读
 ```
 
-只能 stdin 导入，没有 `--token` 参数。凭证只进系统凭证库，**没有明文回退**（凭证库不可用 = 退出码 14）。
+令牌必须由用户本人粘贴：交互方式请让用户自己在终端运行并粘贴，**不要**向用户索要令牌明文再替他导入。
+没有 `--token` 参数。凭证只进系统凭证库，**没有明文回退**（凭证库不可用 = 退出码 14）。
 
 > **导入 PAT 会清掉同 Profile 下原有的 Device Flow 凭证**（输出里的 `deviceFlowCleared` 会告诉你）
 > —— 这是故意的：两者共存时 Device Flow 优先，不清掉 PAT 就不会生效。反过来

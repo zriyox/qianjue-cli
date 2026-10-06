@@ -23,8 +23,12 @@ const defaultPollInterval = 2 * time.Second
 
 // LoginOptions controls one Device Flow login.
 type LoginOptions struct {
-	Profile      string
-	Scopes       []string
+	Profile string
+	Scopes  []string
+	// Site is the user-site domain of a partner (tenant) account. Phone numbers
+	// are only unique per site, so authorizing on the official site would sign
+	// the user in as a different, official-site account.
+	Site         string
 	NoOpen       bool
 	PollInterval time.Duration          // 0 → 2s
 	OpenBrowser  func(url string) error // nil → OpenBrowser
@@ -62,11 +66,18 @@ func Login(ctx context.Context, client *api.Client, store cred.Store, p *output.
 		ClientName: "Qianjue Integration CLI",
 		DeviceName: hostname,
 		Scopes:     scopes,
+		Site:       opts.Site,
 	})
 	if err != nil {
 		return nil, err
 	}
+	// Checked before the URL is shown or opened: a server that ignores Site
+	// (older version) would otherwise send a partner user to the official site.
+	if err := requirePageOnSite(created.AuthorizationURL, created.Site, opts.Site); err != nil {
+		return nil, err
+	}
 
+	printUserCode(p, created.UserCode)
 	p.Progressf("请在浏览器中确认授权: %s", created.AuthorizationURL)
 	if created.ExpiresAt != nil && !created.ExpiresAt.IsZero() {
 		p.Progressf("授权链接 %s 过期（约 %s 后）", created.ExpiresAt.Format(time.RFC3339),
@@ -100,7 +111,7 @@ func Login(ctx context.Context, client *api.Client, store cred.Store, p *output.
 		}
 
 		if poll.CredentialsIssuedNow {
-			return persistIssuedCredentials(store, opts.Profile, created, poll)
+			return persistIssuedCredentials(store, opts.Profile, client.BaseURL(), created, poll)
 		}
 
 		switch poll.Status {
@@ -122,10 +133,21 @@ func Login(ctx context.Context, client *api.Client, store cred.Store, p *output.
 	}
 }
 
+// printUserCode shows the verification code the browser page asks for. Shown on
+// stderr only (never in the JSON result) and printed before the link so it is
+// the first thing the user sees. An empty code (older server) prints nothing.
+func printUserCode(p *output.Printer, userCode string) {
+	if userCode == "" {
+		return
+	}
+	p.Progressf("验证码: %s", userCode)
+	p.Progressf("在浏览器授权页输入上面的验证码完成登录。不要把授权链接或验证码发给任何人。")
+}
+
 // persistIssuedCredentials writes the one-time credentials to the store before
 // any success output. A persistence failure is unrecoverable for this session
 // because the backend never returns the plaintext again.
-func persistIssuedCredentials(store cred.Store, profile string, created *api.DeviceAuthCreateResult, poll *api.DeviceAuthPollResult) (*LoginResult, error) {
+func persistIssuedCredentials(store cred.Store, profile, apiBaseURL string, created *api.DeviceAuthCreateResult, poll *api.DeviceAuthPollResult) (*LoginResult, error) {
 	if poll.AccessToken == "" || poll.RefreshToken == "" {
 		return nil, clierr.New(clierr.KindAuth,
 			"签发响应缺少凭证明文，请重新执行 qianjue auth login")
@@ -136,6 +158,7 @@ func persistIssuedCredentials(store cred.Store, profile string, created *api.Dev
 		RefreshToken:   poll.RefreshToken,
 		SessionID:      poll.DeviceSessionID,
 		Scopes:         created.Scopes,
+		APIBaseURL:     apiBaseURL,
 	}
 	if poll.AccessTokenExpiresAt != nil {
 		rec.AccessTokenExpiresAt = poll.AccessTokenExpiresAt.Time

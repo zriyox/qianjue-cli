@@ -32,15 +32,10 @@ qianjue version
 **Windows（PowerShell）**
 
 ```powershell
-$dir = "$env:LOCALAPPDATA\qianjue"
-New-Item -ItemType Directory -Force -Path $dir | Out-Null
-Invoke-WebRequest -Uri "https://github.com/zriyox/qianjue-cli/releases/latest/download/qianjue-windows-amd64.exe" -OutFile "$dir\qianjue.exe"
-# 加入 PATH（当前用户，永久）
-[Environment]::SetEnvironmentVariable("Path", $env:Path + ";$dir", "User")
-& "$dir\qianjue.exe" version
+$d="$env:LOCALAPPDATA\qianjue";ni $d -Force -ItemType Directory|Out-Null;curl.exe -fL "https://github.com/zriyox/qianjue-cli/releases/latest/download/qianjue-windows-amd64.exe" -o "$d\qianjue.exe";$p=[Environment]::GetEnvironmentVariable("Path","User");if(($p -split ';') -notcontains $d){[Environment]::SetEnvironmentVariable("Path",(($p,$d)-join ';'),"User")};& "$d\qianjue.exe" version
 ```
 
-> 装完若 `qianjue` 仍然找不到，多半是 PATH 没生效——让用户开一个新终端再试。
+> 执行后请重新打开 PowerShell；如果 `qianjue` 仍然找不到，通常是 PATH 尚未在当前终端生效。
 
 **macOS 会拦未签名二进制**：下载来的文件带隔离属性，直接运行会弹「无法验证开发者」。去掉隔离标记即可：
 
@@ -49,11 +44,22 @@ xattr -d com.apple.quarantine /usr/local/bin/qianjue 2>/dev/null || true
 qianjue version
 ```
 
-**校验完整性（可选）**：每个 Release 附带 `SHA256SUMS.txt`。
+**校验完整性（可选）**：每个 Release 附带 `SHA256SUMS`。
 
 ```bash
-curl -fsSL -O https://github.com/zriyox/qianjue-cli/releases/latest/download/SHA256SUMS.txt
-shasum -a 256 -c SHA256SUMS.txt --ignore-missing
+curl -fsSL -O https://github.com/zriyox/qianjue-cli/releases/latest/download/SHA256SUMS
+shasum -a 256 -c SHA256SUMS --ignore-missing
+```
+
+Windows PowerShell：
+
+```powershell
+$sums = "$env:TEMP\qianjue-SHA256SUMS"
+Invoke-WebRequest -Uri "https://github.com/zriyox/qianjue-cli/releases/latest/download/SHA256SUMS" -OutFile $sums
+$expected = ((Get-Content $sums | Where-Object { $_ -match 'qianjue-windows-amd64\.exe$' }) -split '\s+')[0]
+$actual = (Get-FileHash "$env:LOCALAPPDATA\qianjue\qianjue.exe" -Algorithm SHA256).Hash
+if ($actual -ne $expected) { throw "SHA256 校验失败" }
+"SHA256 校验通过: $actual"
 ```
 
 ### 方式 B：用 Go 安装（需要 Go 1.26+）

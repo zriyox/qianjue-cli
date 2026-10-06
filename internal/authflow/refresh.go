@@ -83,6 +83,8 @@ func EnsureFreshToken(ctx context.Context, refreshClient *api.Client, store cred
 		RefreshToken:   refreshed.RefreshToken,
 		SessionID:      refreshed.SessionID,
 		Scopes:         rec.Scopes,
+		// 轮换后的新凭证保留原绑定，否则第一次刷新之后「只发往签发地址」的保护就消失了
+		APIBaseURL: rec.APIBaseURL,
 	}
 	if refreshed.AccessTokenExpiresAt != nil {
 		newRec.AccessTokenExpiresAt = refreshed.AccessTokenExpiresAt.Time

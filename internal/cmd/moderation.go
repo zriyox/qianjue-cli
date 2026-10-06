@@ -10,6 +10,7 @@ import (
 
 	"github.com/zriyox/qianjue-cli/internal/api"
 	"github.com/zriyox/qianjue-cli/internal/clierr"
+	"github.com/zriyox/qianjue-cli/internal/moderation"
 )
 
 // riskAckFlag is the explicit opt-in required to run a risk-bearing moderation
@@ -30,7 +31,8 @@ func newModerationCommand(app *appContext) *cobra.Command {
 		Short: "处理被内容审核拦截的任务（列出 / 申请人工审核 / 继续 / 取消）",
 		Long: "任务命中视觉识别拦截后不会直接失败：任务保持 PENDING、积分保持冻结，等你决定。\n" +
 			"CLI 提交的任务需要你显式申请人工审核（submit-review），平台通过后再 confirm 放行；\n" +
-			"不想继续就 cancel，积分立即退回。超时未处理会自动按取消收口并退积分。",
+			"不想继续就 cancel，积分立即退回。超时未处理会自动按取消收口并退积分。\n" +
+			"想加快审核：" + moderation.ContactSupport + "。",
 	}
 	m.AddCommand(newModerationListCommand(app))
 	m.AddCommand(newModerationStatusCommand(app))
@@ -90,21 +92,11 @@ func holdTableRows(h *api.ModerationHold) [][2]string {
 	return rows
 }
 
-// nextActionHint spells out the single next command. The agent reading this
-// output should hand these to the user rather than run them itself.
+// nextActionHint spells out the next commands. The agent reading this output
+// should hand these to the user rather than run them itself. Wording is shared
+// with the task wait exit-15 message via internal/moderation.
 func nextActionHint(h *api.ModerationHold) string {
-	switch h.ReviewStatus {
-	case api.ReviewNotSubmitted:
-		return "qianjue moderation submit-review " + h.RecordID + "（申请人工审核） 或 cancel " + h.RecordID + "（放弃并退积分）"
-	case api.ReviewPending:
-		return "等待平台审核，可用 qianjue moderation status " + h.RecordID + " 查询进度"
-	case api.ReviewApproved:
-		return "qianjue moderation confirm " + h.RecordID + "（知悉风险并继续生成）"
-	case api.ReviewRejected:
-		return "平台已拒绝，任务已按失败收口并退回积分，无需操作"
-	default:
-		return "qianjue moderation status " + h.RecordID
-	}
+	return moderation.NextSteps(h.RecordID, h.ReviewStatus, h.ReviewNote)
 }
 
 func newModerationListCommand(app *appContext) *cobra.Command {
@@ -193,7 +185,7 @@ func newModerationSubmitReviewCommand(app *appContext) *cobra.Command {
 				[][2]string{
 					{"记录 ID", recordID},
 					{"结果", "已提交人工审核"},
-					{"下一步", "平台通过后执行 qianjue moderation confirm " + recordID + " 继续生成"},
+					{"下一步", moderation.NextSteps(recordID, api.ReviewPending, "")},
 				})
 		},
 	}

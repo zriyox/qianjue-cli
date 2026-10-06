@@ -2,6 +2,9 @@ package cmd
 
 import (
 	"bytes"
+	"fmt"
+	"net/http"
+	"net/http/httptest"
 	"testing"
 	"time"
 
@@ -177,28 +180,132 @@ func TestAuthStatusNone(t *testing.T) {
 	assert.Equal(t, "none", decodeEnvelope(t, stdout).Data.(map[string]any)["credentialSource"])
 }
 
-func TestAuthLogoutRemovesAllAccountsAndNeverClaimsRemoteRevoke(t *testing.T) {
+// revokeServer answers POST /integration/sessions/current/revoke with status, and
+// records the bearer token of every revoke call.
+func revokeServer(t *testing.T, status int, bearers *[]string) *httptest.Server {
+	return httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if r.Method != http.MethodPost || r.URL.Path != "/integration/sessions/current/revoke" {
+			t.Errorf("unexpected request %s %s", r.Method, r.URL.Path)
+			return
+		}
+		*bearers = append(*bearers, r.Header.Get("Authorization"))
+		if status != http.StatusOK {
+			w.WriteHeader(status)
+			fmt.Fprint(w, `{"code":500,"message":"服务暂不可用","data":null}`)
+			return
+		}
+		fmt.Fprint(w, `{"code":200,"message":"操作成功","data":{"sessionId":"qj_ds_1","status":"REVOKED","alreadyInactive":false}}`)
+	}))
+}
+
+// 登出吊销服务端会话：此前只删本地，Refresh Token 在服务端仍有效 30 天。
+func TestAuthLogoutRevokesDeviceFlowSessionOnServer(t *testing.T) {
+	var bearers []string
+	srv := revokeServer(t, http.StatusOK, &bearers)
+	defer srv.Close()
 	store := cred.NewMemoryStore()
 	require.NoError(t, store.Set(cred.DeviceFlowAccount("default"), &cred.Record{
 		CredentialType: cred.TypeDeviceFlow, AccessToken: "qj_at_1", RefreshToken: "qj_rt_1",
+		AccessTokenExpiresAt: time.Now().Add(time.Hour), APIBaseURL: srv.URL,
 	}))
 	require.NoError(t, store.Set(cred.PATAccount("default"), &cred.Record{
 		CredentialType: cred.TypePAT, AccessToken: "qj_pat_1",
 	}))
 
-	app, stdout, _ := xdgApp(t, nil)
+	app, stdout, _ := xdgApp(t, map[string]string{"QIANJUE_API_BASE_URL": srv.URL})
+	withStore(app, store)
+	exit := run(app, []string{"auth", "logout", "--output", "json"})
+	require.Equal(t, 0, exit)
+	data := decodeEnvelope(t, stdout).Data.(map[string]any)
+	assert.Equal(t, true, data["localCredentialRemoved"])
+	assert.Equal(t, true, data["remoteSessionRevoked"])
+	assert.Equal(t, []string{"Bearer qj_at_1"}, bearers, "只用 Device Flow 凭证吊销，且只调一次")
+	assert.Empty(t, store.Accounts())
+
+	// 再次 logout：没有可删的记录，也不再请求服务端
+	app2, stdout2, _ := xdgApp(t, map[string]string{"QIANJUE_API_BASE_URL": srv.URL})
+	withStore(app2, store)
+	exit = run(app2, []string{"auth", "logout", "--output", "json"})
+	require.Equal(t, 0, exit)
+	data2 := decodeEnvelope(t, stdout2).Data.(map[string]any)
+	assert.Equal(t, false, data2["localCredentialRemoved"])
+	assert.Equal(t, false, data2["remoteSessionRevoked"])
+	assert.Len(t, bearers, 1)
+}
+
+// 服务端吊销失败（断网 / 5xx）时仍删本地凭证，但如实报告未吊销，不谎报。
+func TestAuthLogoutRemovesLocalEvenWhenRemoteRevokeFails(t *testing.T) {
+	var bearers []string
+	srv := revokeServer(t, http.StatusInternalServerError, &bearers)
+	defer srv.Close()
+	store := cred.NewMemoryStore()
+	require.NoError(t, store.Set(cred.DeviceFlowAccount("default"), &cred.Record{
+		CredentialType: cred.TypeDeviceFlow, AccessToken: "qj_at_1", RefreshToken: "qj_rt_1",
+		AccessTokenExpiresAt: time.Now().Add(time.Hour), APIBaseURL: srv.URL,
+	}))
+
+	app, stdout, _ := xdgApp(t, map[string]string{"QIANJUE_API_BASE_URL": srv.URL})
 	withStore(app, store)
 	exit := run(app, []string{"auth", "logout", "--output", "json"})
 	require.Equal(t, 0, exit)
 	data := decodeEnvelope(t, stdout).Data.(map[string]any)
 	assert.Equal(t, true, data["localCredentialRemoved"])
 	assert.Equal(t, false, data["remoteSessionRevoked"], "不得谎报远程撤销")
+	assert.NotEmpty(t, data["remoteRevokeError"])
 	assert.Empty(t, store.Accounts())
+}
 
-	// 再次 logout：没有可删的记录
-	app2, stdout2, _ := xdgApp(t, nil)
-	withStore(app2, store)
-	exit = run(app2, []string{"auth", "logout", "--output", "json"})
+// PAT 可能还在服务器 / CI 上使用，logout 只删本地，不吊销（到网页端管理）。
+func TestAuthLogoutDoesNotRevokePAT(t *testing.T) {
+	var bearers []string
+	srv := revokeServer(t, http.StatusOK, &bearers)
+	defer srv.Close()
+	store := cred.NewMemoryStore()
+	require.NoError(t, store.Set(cred.PATAccount("default"), &cred.Record{
+		CredentialType: cred.TypePAT, AccessToken: "qj_pat_1", APIBaseURL: srv.URL,
+	}))
+
+	app, stdout, _ := xdgApp(t, map[string]string{"QIANJUE_API_BASE_URL": srv.URL})
+	withStore(app, store)
+	exit := run(app, []string{"auth", "logout", "--output", "json"})
 	require.Equal(t, 0, exit)
-	assert.Equal(t, false, decodeEnvelope(t, stdout2).Data.(map[string]any)["localCredentialRemoved"])
+	assert.Equal(t, false, decodeEnvelope(t, stdout).Data.(map[string]any)["remoteSessionRevoked"])
+	assert.Empty(t, bearers)
+	assert.Empty(t, store.Accounts())
+}
+
+// 凭证签发地址与当前 API 地址不同：吊销请求同样会带上凭证，不能发出去。
+func TestAuthLogoutDoesNotSendCredentialToAnotherAPI(t *testing.T) {
+	var bearers []string
+	srv := revokeServer(t, http.StatusOK, &bearers)
+	defer srv.Close()
+	store := cred.NewMemoryStore()
+	require.NoError(t, store.Set(cred.DeviceFlowAccount("default"), &cred.Record{
+		CredentialType: cred.TypeDeviceFlow, AccessToken: "qj_at_1", RefreshToken: "qj_rt_1",
+		AccessTokenExpiresAt: time.Now().Add(time.Hour), APIBaseURL: "https://api.aiqianjue.com/api/v1",
+	}))
+
+	app, stdout, _ := xdgApp(t, map[string]string{"QIANJUE_API_BASE_URL": srv.URL})
+	withStore(app, store)
+	exit := run(app, []string{"auth", "logout", "--output", "json"})
+	require.Equal(t, 0, exit)
+	data := decodeEnvelope(t, stdout).Data.(map[string]any)
+	assert.Equal(t, false, data["remoteSessionRevoked"])
+	assert.Empty(t, bearers)
+	assert.Empty(t, store.Accounts())
+}
+
+// 导入 PAT 时绑定当前 API 地址，之后只发往这个地址。
+func TestImportTokenBindsCredentialToAPIBaseURL(t *testing.T) {
+	store := cred.NewMemoryStore()
+	app, _, stderr := xdgApp(t, map[string]string{"QIANJUE_API_BASE_URL": "https://api.example.test/api/v1"})
+	withStore(app, store)
+	app.stdin = bytes.NewReader([]byte("qj_pat_secret123\n"))
+
+	exit := run(app, []string{"auth", "import-token", "--type", "pat", "--stdin", "--output", "json"})
+	require.Equal(t, 0, exit, "stderr: %s", stderr.String())
+
+	rec, err := store.Get(cred.PATAccount("default"))
+	require.NoError(t, err)
+	assert.Equal(t, "https://api.example.test/api/v1", rec.APIBaseURL)
 }

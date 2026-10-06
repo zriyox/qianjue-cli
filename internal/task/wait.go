@@ -10,6 +10,7 @@ import (
 	"github.com/zriyox/qianjue-cli/internal/api"
 	"github.com/zriyox/qianjue-cli/internal/backoff"
 	"github.com/zriyox/qianjue-cli/internal/clierr"
+	"github.com/zriyox/qianjue-cli/internal/moderation"
 	"github.com/zriyox/qianjue-cli/internal/output"
 )
 
@@ -66,7 +67,9 @@ func WaitFetch(ctx context.Context, fetch Fetch, label string, timeout time.Dura
 			// 驱动本 CLI 的 AI agent 会话活不了那么久，傻等只会耗到本地 wait 超时，
 			// 用户还看不出被拦过。
 			if hold := moderationHold(raw); hold != nil {
-				e := clierr.New(clierr.KindModerationHold, moderationHoldMessage(label, hold))
+				e := clierr.New(clierr.KindModerationHold, "").WithHint(
+					moderation.Summary(label, hold.Reason, hold.ExpiresAt),
+					moderation.NextSteps(hold.RecordID, hold.ReviewStatus, hold.ReviewNote))
 				e.Details = raw
 				return nil, e
 			}
@@ -116,6 +119,7 @@ type moderationHoldSnapshot struct {
 	RecordID     string `json:"recordId"`
 	Reason       string `json:"reason"`
 	ReviewStatus string `json:"reviewStatus"`
+	ReviewNote   string `json:"reviewNote"`
 	ExpiresAt    string `json:"expiresAt"`
 }
 
@@ -132,25 +136,4 @@ func moderationHold(raw json.RawMessage) *moderationHoldSnapshot {
 		return nil
 	}
 	return probe.ModerationHold
-}
-
-// moderationHoldMessage spells out what happened and exactly which command comes
-// next, so an agent relaying this to the user does not have to invent one.
-func moderationHoldMessage(label string, hold *moderationHoldSnapshot) string {
-	next := "qianjue moderation submit-review " + hold.RecordID + "（申请人工审核）或 qianjue moderation cancel " + hold.RecordID + "（放弃并退积分）"
-	switch hold.ReviewStatus {
-	case "PENDING_REVIEW":
-		next = "等待平台审核，用 qianjue moderation status " + hold.RecordID + " 查询进度"
-	case "APPROVED":
-		next = "qianjue moderation confirm " + hold.RecordID + "（知悉风险并继续生成）"
-	case "REJECTED":
-		next = "平台已拒绝，任务已按失败收口并退回积分"
-	}
-	expiry := ""
-	if hold.ExpiresAt != "" {
-		expiry = "，未在 " + hold.ExpiresAt + " 前处理将自动取消并退积分"
-	}
-	return fmt.Sprintf(
-		"任务 %s 被内容审核拦截：%s。任务仍保留、积分已冻结未扣除%s。需要你本人决定：%s",
-		label, hold.Reason, expiry, next)
 }

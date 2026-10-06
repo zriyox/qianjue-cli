@@ -12,6 +12,7 @@ import (
 
 	"github.com/zriyox/qianjue-cli/internal/api"
 	"github.com/zriyox/qianjue-cli/internal/clierr"
+	"github.com/zriyox/qianjue-cli/internal/qrterm"
 )
 
 func newIdentityCommand(app *appContext) *cobra.Command {
@@ -51,7 +52,7 @@ func newIdentityVerifyCommand(app *appContext) *cobra.Command {
 	var pollTimeout string
 	c := &cobra.Command{
 		Use:   "verify",
-		Short: "完成实名认证（交互式：终端出扫码链接，手机微信扫码刷脸）",
+		Short: "完成实名认证（交互式：终端显示二维码，手机微信扫码刷脸）",
 		Long: "流程与网页端一致：发短信码 → 提交姓名/身份证/短信码 → 拿到腾讯刷脸页地址 →\n" +
 			"用手机微信扫码完成人脸核身 → 本地轮询结果。\n\n" +
 			"身份信息只随本次请求发往平台，CLI 不落盘、不写日志、不回显。",
@@ -92,11 +93,7 @@ func newIdentityVerifyCommand(app *appContext) *cobra.Command {
 				return clierr.New(clierr.KindServer, "发起认证成功但未返回刷脸页地址，请稍后重试")
 			}
 
-			fmt.Fprintln(app.stderr)
-			fmt.Fprintln(app.stderr, "用手机微信「扫一扫」打开下面的链接完成人脸核身：")
-			fmt.Fprintln(app.stderr, "  "+started.URL)
-			fmt.Fprintln(app.stderr, "（在 PC 浏览器直接打开会调用电脑摄像头，体验差；建议用手机扫）")
-			fmt.Fprintln(app.stderr)
+			printFaceVerifyEntry(app, started.URL)
 
 			timeout := 10 * time.Minute
 			if pollTimeout != "" {
@@ -156,6 +153,37 @@ func pollIdentity(ctx context.Context, app *appContext, client *api.Client, veri
 		case <-time.After(3 * time.Second):
 		}
 	}
+}
+
+// printFaceVerifyEntry shows how to open the Tencent face-verification page.
+//
+// The page is meant for a phone: opened in a PC browser it drives the laptop
+// camera. So an interactive terminal gets a QR code to scan straight off the
+// screen. The link is always printed too — it is the fallback when the drawing
+// cannot be shown (not a terminal, --no-color, a console without ANSI support)
+// or will not scan. Everything goes to stderr so `--output json` stdout stays a
+// single document.
+func printFaceVerifyEntry(app *appContext, url string) {
+	w := app.stderr
+	fmt.Fprintln(w)
+	drawing := ""
+	if app.canDrawQR != nil && app.canDrawQR() && !app.colorDisabled() {
+		if qr, err := qrterm.Render(url); err == nil {
+			drawing = qr
+		}
+	}
+	if drawing != "" {
+		fmt.Fprintln(w, "用手机微信「扫一扫」扫描下面的二维码，完成人脸核身：")
+		fmt.Fprintln(w)
+		fmt.Fprint(w, drawing)
+		fmt.Fprintln(w)
+		fmt.Fprintln(w, "扫不了码？把下面的链接发到手机上，用微信打开：")
+	} else {
+		fmt.Fprintln(w, "把下面的链接发到手机上，用微信打开，完成人脸核身：")
+	}
+	fmt.Fprintln(w, "  "+url)
+	fmt.Fprintln(w, "（在电脑浏览器里直接打开会调用电脑摄像头，体验差，建议用手机）")
+	fmt.Fprintln(w)
 }
 
 func suffixIfPresent(msg string) string {

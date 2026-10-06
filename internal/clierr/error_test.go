@@ -132,3 +132,23 @@ func TestOtherIdentityCodesAreNotEscalated(t *testing.T) {
 		assert.NotContains(t, e.Message, "qianjue identity verify", "code=%d", code)
 	}
 }
+
+// Message 必须仍是「现状。下一步：补救」整句（JSON 与 Error() 的既有消费者不变），
+// 同时拆出 Summary / Hint 供 table 输出分行；后端文案自带句号时不能叠成「。。」。
+func TestIdentityRequiredSplitsSummaryAndHint(t *testing.T) {
+	e := FromAPI(403, 2016, "请先完成实名认证。", nil)
+
+	assert.Equal(t, "请先完成实名认证", e.Summary)
+	assert.Contains(t, e.Hint, "qianjue identity verify")
+	assert.Equal(t, e.Summary+"。下一步："+e.Hint, e.Message)
+	assert.NotContains(t, e.Message, "。。")
+	assert.Equal(t, "IDENTITY_REQUIRED (code 2016): 请先完成实名认证", e.Headline())
+	assert.Contains(t, e.Error(), e.Hint, "Error() 仍须带补救办法")
+
+	empty := FromAPI(403, 2016, "", nil)
+	assert.Equal(t, "该账号需要先完成实名认证才能提交任务", empty.Summary)
+
+	plain := FromAPI(400, 4001, "参数错误", nil)
+	assert.Empty(t, plain.Hint)
+	assert.Equal(t, plain.Error(), plain.Headline(), "没有补救办法的错误 Headline 与 Error() 一致")
+}

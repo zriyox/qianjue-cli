@@ -40,6 +40,10 @@ type Record struct {
 	SessionExpiresAt     time.Time `json:"sessionExpiresAt,omitempty"`
 	SessionID            string    `json:"sessionId,omitempty"`
 	Scopes               []string  `json:"scopes,omitempty"`
+	// APIBaseURL is the API root the credential was issued for. Tokens are only
+	// ever sent there, so an overridden --api-base-url / QIANJUE_API_BASE_URL
+	// cannot carry them to another host. Empty on records written by older CLIs.
+	APIBaseURL string `json:"apiBaseUrl,omitempty"`
 }
 
 // Validate rejects structurally broken records before they are persisted.

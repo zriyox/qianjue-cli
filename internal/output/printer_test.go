@@ -100,6 +100,34 @@ func TestFailureTableModeWritesStderrOnly(t *testing.T) {
 	assert.Contains(t, stderr.String(), "缺少凭证")
 }
 
+// 带补救办法的错误：table 模式把「下一步」拆成独立一行，json 模式 message
+// 保持「现状 + 下一步」整句，信封字段一个不加（信封是长期自动化契约）。
+func TestFailureWithHintSplitsLinesOnlyInTableMode(t *testing.T) {
+	apiErr := clierr.FromAPI(403, 2016, "请先完成实名认证", nil)
+
+	var stdout, stderr bytes.Buffer
+	table := NewPrinter(&stdout, &stderr, FormatTable, false, true)
+	table.Failure("image-chat.create", apiErr, nil)
+	lines := strings.Split(strings.TrimSpace(stderr.String()), "\n")
+	require.Len(t, lines, 2)
+	assert.Equal(t, "Error: IDENTITY_REQUIRED (code 2016): 请先完成实名认证", lines[0])
+	assert.True(t, strings.HasPrefix(lines[1], "下一步: 运行 `qianjue identity verify`"), lines[1])
+
+	stdout.Reset()
+	jsonPrinter := NewPrinter(&stdout, &bytes.Buffer{}, FormatJSON, false, true)
+	jsonPrinter.Failure("image-chat.create", apiErr, nil)
+	env := decodeSingleDocument(t, &stdout)
+	require.NotNil(t, env.Error)
+	assert.True(t, strings.HasPrefix(env.Error.Message, "请先完成实名认证。下一步：运行 `qianjue identity verify`"),
+		env.Error.Message)
+	var raw struct {
+		Error map[string]any `json:"error"`
+	}
+	require.NoError(t, json.Unmarshal(stdout.Bytes(), &raw))
+	assert.NotContains(t, raw.Error, "hint", "信封里不得新增字段")
+	assert.NotContains(t, raw.Error, "summary", "信封里不得新增字段")
+}
+
 func TestFailureRedactsTokensInMessage(t *testing.T) {
 	var stdout bytes.Buffer
 	p := NewPrinter(&stdout, &bytes.Buffer{}, FormatJSON, false, true)

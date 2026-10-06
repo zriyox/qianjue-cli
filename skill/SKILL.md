@@ -56,13 +56,29 @@ qianjue config show --output table    # 带「(内置默认：生产)」标记 =
 
 优先级：`--api-base-url` > `QIANJUE_API_BASE_URL` > Profile > 内置生产默认。非 localhost 强制 HTTPS。
 
+**凭证只发往签发它的地址**：登录 / 导入 PAT 时的 API 根地址会记进凭证。之后当前地址与之不同（比如有人改了
+`QIANJUE_API_BASE_URL`）时，命令以退出码 3 拒绝并说明两个地址——**不要**为了绕过它去改地址或重新登录到陌生地址，
+先问用户这个地址是不是他本人要用的。要长期切换环境，给新地址单独建 Profile 再登录。
+
+`qianjue auth logout` 会吊销服务端会话再删本地凭证（PAT 只删本地）；输出 `remoteSessionRevoked=false` 时如实告诉用户。
+
 ## 3. 登录
 
 ```bash
 qianjue auth login             # Device Flow：自动开浏览器，需用户本人点「确认授权」
 qianjue auth login --no-open   # 无图形界面时只打印 URL
+qianjue auth login --site acme.example.com   # 用户的账号属于某个合作伙伴站点时必须加
 qianjue auth status --output json
 ```
+
+**登录时终端会打印一个验证码（形如 `BKTW-QZHM`），用户必须在浏览器授权页手动输入它才能完成授权。**
+把验证码原样转告用户、请用户本人在自己打开的授权页输入；**绝不要**替用户把链接或验证码转发给其他人，
+也不要尝试代填——这道验证码就是为了防止「把授权链接发给别人点」把对方账号交出去。
+
+**用户在哪个站点注册，就在哪个站点授权。** 用户的账号属于合作伙伴站点（不是官方站）时，
+必须带 `--site <该站点域名>`，否则授权页开在官方站，登进去的是另一个账号（同手机号在不同站点是不同账号），
+任务和扣费都会算到官方站。不确定就先问用户「你平时在哪个网址登录」。
+服务端返回的授权页不在该站点时 CLI 会中止（退出码 13），这时改用该站点网页端创建的 PAT。
 
 无浏览器 / 自动化用 PAT（用户在 Web 后台创建）：
 
@@ -174,10 +190,10 @@ qianjue video-studio smart-mix voices       # 混剪音色（voiceCode 从这里
 
 ```json
 { "ok": false, "error": { "kind": "MODERATION_HOLD",
-  "message": "任务 draw/8812 被内容审核拦截：图2：疑似含受限内容。任务仍保留、积分已冻结未扣除，未在 2026-09-10T14:22:00 前处理将自动取消并退积分。需要你本人决定：qianjue moderation submit-review 41207（申请人工审核）或 qianjue moderation cancel 41207（放弃并退积分）" } }
+  "message": "任务 draw/8812 被内容审核拦截（原因：图2：疑似含受限内容）。任务仍保留，积分已冻结未扣除；2026-09-10T14:22:00 前未处理将自动取消并退回积分。下一步：以下需要你本人操作：① 运行 `qianjue moderation submit-review 41207` 申请人工审核；② 在网页端点右上角「操作咨询」扫码联系客服，说明情况可加快审核；③ 平台审核通过后运行 `qianjue moderation confirm 41207` 继续生成。不想继续可运行 `qianjue moderation cancel 41207`，积分立即退回。" } }
 ```
 
-**你（AI 助手）该做的**：停止当前任务流 → 把拦截原因、命中的素材、记录号原样转述给用户 → 把下面两条命令交给用户**自己执行**。
+**你（AI 助手）该做的**：停止当前任务流 → 把拦截原因、命中的素材、记录号原样转述给用户 → 把 message 里「下一步」的命令交给用户**自己执行**，并**明确告诉用户去网页端右上角「操作咨询」扫码联系客服**（CLI 显示不了客服二维码，只能指路；申请审核后联系客服能加快处理）。
 
 **你不该做的**：
 - ❌ 自行执行 `moderation submit-review` 或 `moderation confirm`

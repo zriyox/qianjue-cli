@@ -4,6 +4,7 @@ import (
 	"context"
 	"fmt"
 	"strings"
+	"sync"
 	"time"
 
 	"github.com/zriyox/qianjue-cli/internal/api"
@@ -38,6 +39,22 @@ type DeviceFlowTokenSource struct {
 	profile       string
 	refreshClient *api.Client
 	now           func() time.Time
+
+	// cached keeps the record in memory for the life of this process so repeated
+	// requests reuse the token instead of re-reading the OS credential store.
+	// On macOS every read of an item whose ACL does not list the current binary
+	// (an unsigned executable, freshly replaced by an update) blocks inside
+	// Security.framework until somebody clicks the authorization dialog: a
+	// per-request read turns one command into N dialogs — `task wait` polls, so
+	// a 10-minute wait asked for permission dozens of times — and, with nobody
+	// to click, dies on the keychain timeout instead.
+	//
+	// The store is consulted again only when the cached token enters the
+	// T-5min refresh window (cli-contract.md §11 trigger 1) or the server
+	// rejects it with 401/2002 (§11 trigger 2, through HandleAuthError), so
+	// cross-process rotation is still picked up by the next refresh.
+	mu     sync.Mutex
+	cached *cred.Record
 }
 
 func NewDeviceFlowTokenSource(store cred.Store, getenv config.Getenv, profile string, refreshClient *api.Client) *DeviceFlowTokenSource {
@@ -45,18 +62,37 @@ func NewDeviceFlowTokenSource(store cred.Store, getenv config.Getenv, profile st
 }
 
 func (d *DeviceFlowTokenSource) Token(ctx context.Context) (string, error) {
+	d.mu.Lock()
+	defer d.mu.Unlock()
+	if rec := d.cached; rec != nil && isFresh(rec, d.clock()) {
+		return rec.AccessToken, nil
+	}
 	rec, err := EnsureFreshToken(ctx, d.refreshClient, d.store, d.getenv, d.profile, d.now, false)
 	if err != nil {
 		return "", err
 	}
+	d.cached = rec
 	return rec.AccessToken, nil
 }
 
 func (d *DeviceFlowTokenSource) HandleAuthError(ctx context.Context, code int) (bool, error) {
-	if _, err := EnsureFreshToken(ctx, d.refreshClient, d.store, d.getenv, d.profile, d.now, true); err != nil {
+	d.mu.Lock()
+	defer d.mu.Unlock()
+	rec, err := EnsureFreshToken(ctx, d.refreshClient, d.store, d.getenv, d.profile, d.now, true)
+	if err != nil {
 		return false, err
 	}
+	// 轮换后的凭证进缓存：重放请求与后续请求都不必再回读凭证库。
+	d.cached = rec
 	return true, nil
+}
+
+// clock keeps the injectable time source optional, matching EnsureFreshToken.
+func (d *DeviceFlowTokenSource) clock() time.Time {
+	if d.now == nil {
+		return time.Now()
+	}
+	return d.now()
 }
 
 // ResolveTokenSource applies the credential precedence of cli-contract.md §8:

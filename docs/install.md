@@ -11,60 +11,68 @@ qianjue version --output json
 ```
 
 - 能打印版本 → **先告诉用户「已经安装，当前版本 vX.Y.Z」**，不要重复安装；再用 `qianjue auth status --output json` 看是否已登录，已登录就直接跳到 §4（装 skill），否则跳到 §3（登录）。
-  用户明确要求升级时才执行 §1 里的「升级 / 更新」小节（会覆盖成最新版）。
+  用户明确要求升级时才按 §1 的「升级」小节操作（会覆盖成最新版）。
 - 提示 command not found → 从 §1 开始。
 
-## 1. 安装二进制
+## 1. 安装 / 升级 / 清理 / 卸载
 
-### 方式 A：一行脚本（推荐；自动选平台、校验 SHA256、处理 PATH 与 macOS 隔离属性）
+**四个动作都是同一条命令，区别只在参数。**
 
-**macOS / Linux**
+macOS / Linux：
 
 ```bash
 curl -fsSL https://github.com/zriyox/qianjue-cli/releases/latest/download/install.sh | sh
 ```
 
-**Windows（PowerShell）**
+Windows（PowerShell）：
 
 ```powershell
 irm https://github.com/zriyox/qianjue-cli/releases/latest/download/install.ps1 | iex
 ```
 
-不放心可以先空跑 / 卸载 / 清理：
+脚本自己识别系统与 CPU 架构、下载对应二进制、校验 SHA256、装到可写目录、必要时处理 PATH；macOS 还会自动去掉隔离属性，不用再手动 `xattr -d`。
+
+| 要做的动作 | macOS / Linux | Windows（PowerShell） |
+| --- | --- | --- |
+| 安装（首次） | 上面那条命令，直接跑 | 上面那条命令，直接跑 |
+| 升级到最新版 | 再跑一次同一条命令 | 再跑一次同一条命令 |
+| 清理重复 / 残留的旧二进制 | `curl -fsSL …/install.sh \| sh -s -- --clean` | `& ([scriptblock]::Create((irm …/install.ps1))) -Clean` |
+| 卸载（凭证保留） | `curl -fsSL …/install.sh \| sh -s -- --uninstall` | `& ([scriptblock]::Create((irm …/install.ps1))) -Uninstall` |
+| 只看它要做什么，不改动 | `curl -fsSL …/install.sh \| sh -s -- --dry-run` | `& ([scriptblock]::Create((irm …/install.ps1))) -DryRun` |
+| 装指定版本 | `… \| sh -s -- --version v0.6.3` | `& ([scriptblock]::Create((irm …/install.ps1))) -Version v0.6.3` |
+| 装到指定目录 | `… \| sh -s -- --dir "$HOME/.local/bin"` | `& ([scriptblock]::Create((irm …/install.ps1))) -Dir "$env:LOCALAPPDATA\qianjue"` |
+
+> 表里的 `…` 是 `https://github.com/zriyox/qianjue-cli/releases/latest/download`。
+>
+> Windows 带参数必须用 `& ([scriptblock]::Create(...))` 这种写法：`irm … | iex` 传不进参数，只够用来安装。带参数时不能用 `exit` 之类的写法，脚本已经处理好，出错只会打印错误、不会关掉用户的 PowerShell 窗口。
+
+### 升级（用户问「怎么更新」就答这个）
+
+**重跑同一条安装命令即可。** 要点：
+
+- **原地覆盖**：已经装过就更新到原来那个位置，不会再多装一份。
+- **凭证不用重登**：token 存在系统凭证库（macOS Keychain / Windows Credential Manager / Linux Secret Service），跟二进制文件无关。
+- **macOS 隔离属性由脚本自动清**。
+- 升级完用 `qianjue version --output json` 确认版本。CLI 自己也会在命令收尾提示有没有新版本（不想要就设 `QIANJUE_NO_UPDATE_CHECK=1`，或在 `config.toml` 写 `update_check = false`）。
+
+### 清理（「更新完还是老版本」就查这个）
+
+原因几乎总是同一台机器上并存了两份 `qianjue`（比如旧的装在 `/usr/local/bin`、新的装在 `~/.local/bin`），PATH 里靠前的那份在生效。
+
+- 安装脚本**每次结束都会检查**，发现重复就把路径列出来，并给出可直接粘贴的清理命令。
+- 按提示跑 `--clean` / `-Clean`：删掉安装目录以外的 `qianjue` 和 `qianjue.old`，只保留安装目录那一份。
+- 安全边界：安装目录里没有可用的 `qianjue` 时，`--clean` **拒绝执行**（只提示不删），避免把机器上唯一一份删掉。
+- 清完确认一次：`command -v qianjue`（Windows：`(Get-Command qianjue).Source`）必须只剩一份。
+
+### 卸载
 
 ```bash
-# macOS / Linux
-curl -fsSL .../install.sh | sh -s -- --dry-run     # 只打印将要执行的动作
-curl -fsSL .../install.sh | sh -s -- --uninstall   # 卸载二进制（凭证仍保留）
-curl -fsSL .../install.sh | sh -s -- --clean       # 清理其它位置重复的旧二进制
+curl -fsSL https://github.com/zriyox/qianjue-cli/releases/latest/download/install.sh | sh -s -- --uninstall
 ```
 
-```powershell
-# Windows（注意是 & ([scriptblock]::Create(...)) 这种写法，参数才传得进去）
-& ([scriptblock]::Create((irm .../install.ps1))) -DryRun
-& ([scriptblock]::Create((irm .../install.ps1))) -Uninstall
-& ([scriptblock]::Create((irm .../install.ps1))) -Clean
-```
+只删二进制，**不动凭证**。要一并清掉登录状态再跑 `qianjue auth logout`。
 
-### 升级 / 更新到最新版
-
-**重跑同一条安装命令就行**，会覆盖旧二进制（装过的话原地更新，不会再多装一份）：
-
-```bash
-curl -fsSL https://github.com/zriyox/qianjue-cli/releases/latest/download/install.sh | sh    # macOS / Linux
-```
-
-```powershell
-irm https://github.com/zriyox/qianjue-cli/releases/latest/download/install.ps1 | iex         # Windows
-```
-
-- **凭证不用重登**：token 在系统凭证库（Keychain / Credential Manager）里，跟二进制无关。
-- **macOS 隔离属性由脚本自动清**，不用再手动 `xattr -d`。
-- **指定版本**：`--version v0.6.3`（PowerShell：`-Version v0.6.3`）。
-- **「更新完还是老版本」**：机器上并存了两份 `qianjue`，PATH 靠前的那份在生效。安装脚本会在结尾主动提示，按提示跑 `--clean` 把重复的删掉即可（只保留安装目录那一份；安装目录里没有可用二进制时它会拒绝执行，避免删掉唯一一份）。
-- 用 `qianjue version --output json` 确认升级后的版本；CLI 自己也会在命令收尾时提示有新版本（可用 `QIANJUE_NO_UPDATE_CHECK=1` 关掉）。
-
-### 方式 B：手动下载预编译二进制（无需 Go 环境）
+### 方式 B：手动下载预编译二进制（脚本跑不通时用）
 
 按用户的操作系统和 CPU 架构选一个。不确定架构时先跑 `uname -sm`（Windows PowerShell：`$env:PROCESSOR_ARCHITECTURE`）。
 
@@ -86,14 +94,23 @@ $d="$env:LOCALAPPDATA\qianjue";ni $d -Force -ItemType Directory|Out-Null;curl.ex
 
 > 执行后请重新打开 PowerShell；如果 `qianjue` 仍然找不到，通常是 PATH 尚未在当前终端生效。
 
-**macOS 会拦未签名二进制**：下载来的文件带隔离属性，直接运行会弹「无法验证开发者」。去掉隔离标记即可：
+**macOS 会拦未签名二进制**：手动下载的文件带隔离属性，直接运行会弹「无法验证开发者」。去掉隔离标记即可：
 
 ```bash
 xattr -d com.apple.quarantine /usr/local/bin/qianjue 2>/dev/null || true
 qianjue version
 ```
 
-**校验完整性（可选）**：每个 Release 附带 `SHA256SUMS`。
+### 方式 C：用 Go 安装（需要 Go 1.26+）
+
+```bash
+go install github.com/zriyox/qianjue-cli/cmd/qianjue@latest
+qianjue version    # 若找不到，确认 $(go env GOPATH)/bin 在 PATH 里
+```
+
+### 校验完整性（可选）
+
+每个 Release 附带 `SHA256SUMS`。
 
 ```bash
 curl -fsSL -O https://github.com/zriyox/qianjue-cli/releases/latest/download/SHA256SUMS
@@ -109,13 +126,6 @@ $expected = ((Get-Content $sums | Where-Object { $_ -match 'qianjue-windows-amd6
 $actual = (Get-FileHash "$env:LOCALAPPDATA\qianjue\qianjue.exe" -Algorithm SHA256).Hash
 if ($actual -ne $expected) { throw "SHA256 校验失败" }
 "SHA256 校验通过: $actual"
-```
-
-### 方式 C：用 Go 安装（需要 Go 1.26+）
-
-```bash
-go install github.com/zriyox/qianjue-cli/cmd/qianjue@latest
-qianjue version    # 若找不到，确认 $(go env GOPATH)/bin 在 PATH 里
 ```
 
 ## 2. 选择环境（默认生产，通常什么都不用做）

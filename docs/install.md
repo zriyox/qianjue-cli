@@ -53,6 +53,7 @@ irm https://github.com/zriyox/qianjue-cli/releases/latest/download/install.ps1 |
 - **原地覆盖**：已经装过就更新到原来那个位置，不会再多装一份。
 - **凭证不用重登**：token 存在系统凭证库（macOS Keychain / Windows Credential Manager / Linux Secret Service），跟二进制文件无关。
 - **macOS 隔离属性由脚本自动清**。
+- **macOS 首次运行可能再要一次钥匙串授权**：二进制没有代码签名，系统认不出新文件和旧文件是同一个程序，第一次读凭证会再弹一次「允许访问」——点**「始终允许」**，之后不再弹。凭证不会丢，**不需要重新登录**。
 - 升级完用 `qianjue version --output json` 确认版本。CLI 自己也会在命令收尾提示有没有新版本（不想要就设 `QIANJUE_NO_UPDATE_CHECK=1`，或在 `config.toml` 写 `update_check = false`）。
 
 ### 清理（「更新完还是老版本」就查这个）

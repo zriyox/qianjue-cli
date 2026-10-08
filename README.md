@@ -2,6 +2,22 @@
 
 千谲 AI 平台的官方命令行客户端：提交图片 / 视频生成任务，查询与等待结果，按幂等键恢复未知结果。
 
+推荐一行安装（自动选平台、校验 SHA256、处理 PATH 与 macOS 隔离属性）：
+
+```bash
+# macOS / Linux
+curl -fsSL https://github.com/zriyox/qianjue-cli/releases/latest/download/install.sh | sh
+```
+
+```powershell
+# Windows
+irm https://github.com/zriyox/qianjue-cli/releases/latest/download/install.ps1 | iex
+```
+
+**升级就是重跑同一条命令**（覆写旧二进制，凭证不用重登）。「更新完还是老版本」通常是机器上并存了两份，按脚本结尾的提示跑 `--clean` 清掉。卸载：`--uninstall`。
+
+手动装 / 从源码构建：
+
 ```bash
 curl -fsSL -o qianjue https://github.com/zriyox/qianjue-cli/releases/latest/download/qianjue-darwin-arm64
 chmod +x qianjue && sudo mv qianjue /usr/local/bin/

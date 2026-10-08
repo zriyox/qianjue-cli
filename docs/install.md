@@ -11,12 +11,60 @@ qianjue version --output json
 ```
 
 - 能打印版本 → **先告诉用户「已经安装，当前版本 vX.Y.Z」**，不要重复安装；再用 `qianjue auth status --output json` 看是否已登录，已登录就直接跳到 §4（装 skill），否则跳到 §3（登录）。
-  用户明确要求升级时才重新执行 §1（会覆盖成最新版）。
+  用户明确要求升级时才执行 §1 里的「升级 / 更新」小节（会覆盖成最新版）。
 - 提示 command not found → 从 §1 开始。
 
 ## 1. 安装二进制
 
-### 方式 A：下载预编译二进制（推荐，无需 Go 环境）
+### 方式 A：一行脚本（推荐；自动选平台、校验 SHA256、处理 PATH 与 macOS 隔离属性）
+
+**macOS / Linux**
+
+```bash
+curl -fsSL https://github.com/zriyox/qianjue-cli/releases/latest/download/install.sh | sh
+```
+
+**Windows（PowerShell）**
+
+```powershell
+irm https://github.com/zriyox/qianjue-cli/releases/latest/download/install.ps1 | iex
+```
+
+不放心可以先空跑 / 卸载 / 清理：
+
+```bash
+# macOS / Linux
+curl -fsSL .../install.sh | sh -s -- --dry-run     # 只打印将要执行的动作
+curl -fsSL .../install.sh | sh -s -- --uninstall   # 卸载二进制（凭证仍保留）
+curl -fsSL .../install.sh | sh -s -- --clean       # 清理其它位置重复的旧二进制
+```
+
+```powershell
+# Windows（注意是 & ([scriptblock]::Create(...)) 这种写法，参数才传得进去）
+& ([scriptblock]::Create((irm .../install.ps1))) -DryRun
+& ([scriptblock]::Create((irm .../install.ps1))) -Uninstall
+& ([scriptblock]::Create((irm .../install.ps1))) -Clean
+```
+
+### 升级 / 更新到最新版
+
+**重跑同一条安装命令就行**，会覆盖旧二进制（装过的话原地更新，不会再多装一份）：
+
+```bash
+curl -fsSL https://github.com/zriyox/qianjue-cli/releases/latest/download/install.sh | sh    # macOS / Linux
+```
+
+```powershell
+irm https://github.com/zriyox/qianjue-cli/releases/latest/download/install.ps1 | iex         # Windows
+```
+
+- **凭证不用重登**：token 在系统凭证库（Keychain / Credential Manager）里，跟二进制无关。
+- **macOS 隔离属性由脚本自动清**，不用再手动 `xattr -d`。
+- **指定版本**：`--version v0.6.3`（PowerShell：`-Version v0.6.3`）。
+- **「更新完还是老版本」**：机器上并存了两份 `qianjue`，PATH 靠前的那份在生效。安装脚本会在结尾主动提示，按提示跑 `--clean` 把重复的删掉即可（只保留安装目录那一份；安装目录里没有可用二进制时它会拒绝执行，避免删掉唯一一份）。
+- 用 `qianjue version --output json` 确认升级后的版本；CLI 自己也会在命令收尾时提示有新版本（可用 `QIANJUE_NO_UPDATE_CHECK=1` 关掉）。
+
+### 方式 B：手动下载预编译二进制（无需 Go 环境）
 
 按用户的操作系统和 CPU 架构选一个。不确定架构时先跑 `uname -sm`（Windows PowerShell：`$env:PROCESSOR_ARCHITECTURE`）。
 
@@ -63,7 +111,7 @@ if ($actual -ne $expected) { throw "SHA256 校验失败" }
 "SHA256 校验通过: $actual"
 ```
 
-### 方式 B：用 Go 安装（需要 Go 1.26+）
+### 方式 C：用 Go 安装（需要 Go 1.26+）
 
 ```bash
 go install github.com/zriyox/qianjue-cli/cmd/qianjue@latest

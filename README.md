@@ -33,6 +33,25 @@ make test           # 全部单元 + HTTP mock 集成测试（离线，无付费
 make lint           # gofmt + go vet
 ```
 
+## 版本更新提示
+
+每次命令收尾时，CLI 会顺带确认一次有没有更新版本，**发现新版本只往 stderr 打一行提示**：
+不改 stdout 的 JSON、不改退出码，`--quiet` 时不打。结果缓存在本地 —— 24 小时内不再请求，
+查不到时 1 小时内不重试，所以正常调用几乎没有额外延迟。
+
+```bash
+qianjue version --check                  # 主动确认（同步查询）
+qianjue version --check --output json    # data.checkStatus: UPDATE_AVAILABLE / UP_TO_DATE / UNAVAILABLE / UNKNOWN
+```
+
+默认查询 `https://github.com/zriyox/qianjue-cli/releases/latest`（只读发布页的重定向，不带任何凭证，
+也不占 GitHub API 配额）。关闭方式二选一：
+
+- 环境变量 `QIANJUE_NO_UPDATE_CHECK=1`
+- `config.toml` 里写 `update_check = false`
+
+分发渠道不是公开仓库时，用 `QIANJUE_RELEASE_URL` 指向自己的发布页，无需重新编译。
+
 ## AI skill（随 CLI 分发，可由 AI 自助安装）
 
 本 CLI 内置一个**面向使用者**的 AI skill `qianjue-cli`，教 AI 助手怎么用 `qianjue` 生成图片/视频、等任务、处理幂等与恢复。
@@ -98,7 +117,7 @@ some-secret-tool | qianjue auth import-token --type pat --stdin   # 脚本 / CI�
 
 ```text
 qianjue
-├── version
+├── version  [--check]
 ├── config   profile create|use|list · show · path
 ├── auth     login · import-token · status · logout
 ├── image    create · get · wait · cancel · request-status · resume

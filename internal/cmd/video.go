@@ -1,9 +1,11 @@
 package cmd
 
 import (
+	"bytes"
 	"context"
 	"encoding/json"
 	"fmt"
+	"strings"
 	"time"
 
 	"github.com/spf13/cobra"
@@ -12,6 +14,7 @@ import (
 	"github.com/zriyox/qianjue-cli/internal/clierr"
 	"github.com/zriyox/qianjue-cli/internal/idem"
 	"github.com/zriyox/qianjue-cli/internal/task"
+	"github.com/zriyox/qianjue-cli/internal/videoreq"
 )
 
 // autoVideoKeyPrefix is the fixed prefix for generated video keys.
@@ -69,6 +72,11 @@ func newVideoCreateCommandWith(app *appContext, kind api.VideoKind, use, short s
 			if err := idem.CheckRequestObject(rawRequest); err != nil {
 				return err
 			}
+			originalRequest := rawRequest
+			rawRequest, err = normalizeVideoRequest(app, kind, rawRequest)
+			if err != nil {
+				return err
+			}
 			if err := idem.CheckForbiddenFields(rawRequest); err != nil {
 				return err
 			}
@@ -80,7 +88,7 @@ func newVideoCreateCommandWith(app *appContext, kind api.VideoKind, use, short s
 				return clierr.Usage("--idempotency-key 最多 128 个字符")
 			}
 
-			log, err := prepareVideoRequestLog(app, resolved.ProfileName, resolved.APIBaseURL, key, rawRequest, kind)
+			log, err := prepareVideoRequestLog(app, resolved.ProfileName, resolved.APIBaseURL, key, rawRequest, originalRequest, kind)
 			if err != nil {
 				return err
 			}
@@ -218,10 +226,76 @@ func newVideoResumeCommand(app *appContext) *cobra.Command {
 	return c
 }
 
+// normalizeVideoRequest applies the same request shaping the web client performs
+// before POST /integration/video-tasks: a provider only receives
+// items[].inputImageUrl plus a model-specific reference field
+// (seedanceConfig.referenceImages, or omniConfig.imageList for kling-v3-omni), so
+// a request that fills only items[].inputImages would submit a single image. The
+// rewrite runs before the local request log is written, so the digest, the stored
+// request JSON and the transport body stay the same document. Only video create
+// is touched: the sibling kinds (edit/upscale/gesture-replica) derive their
+// images server-side from inputImages and reject the reference fields.
+func normalizeVideoRequest(app *appContext, kind api.VideoKind, rawRequest []byte) ([]byte, error) {
+	if kind != api.VideoKindCreate {
+		return rawRequest, nil
+	}
+	normalized, report, err := videoreq.NormalizeInputImages(rawRequest)
+	if err != nil {
+		return nil, err
+	}
+	if !report.Changed() {
+		return rawRequest, nil
+	}
+	// The rewrite can duplicate the material list into the provider field, so
+	// re-apply the local size cap instead of trusting the pre-rewrite length.
+	if err := idem.CheckRequestObject(normalized); err != nil {
+		return nil, err
+	}
+	app.printer.Progressf("%s", describeVideoRequestNormalization(report))
+	return normalized, nil
+}
+
+// replaysArchivedRequest reports whether the pre-normalization document is the
+// one the stored log was written for. Only a rewrite can make the two differ,
+// so an equal pair means the log belongs to some other request and the usual
+// exit-6 conflict must stand.
+func replaysArchivedRequest(originalRequest, normalizedRequest []byte, existing *idem.RequestLog) bool {
+	if len(originalRequest) == 0 || bytes.Equal(originalRequest, normalizedRequest) {
+		return false
+	}
+	originalDigest, err := idem.Digest(originalRequest)
+	return err == nil && originalDigest == existing.RequestDigest
+}
+
+// describeVideoRequestNormalization spells out a silent rewrite: the caller
+// must be able to tell why the submitted document differs from the file.
+func describeVideoRequestNormalization(report videoreq.Report) string {
+	parts := make([]string, 0, 2)
+	if report.ReferenceImages > 0 {
+		field := report.ReferenceField
+		if field == "" {
+			field = "参考图字段"
+		}
+		parts = append(parts, fmt.Sprintf(
+			"已按 Web 端规则把 inputImages 中除首张外的 %d 张图填入 %s（后端只把该字段作为参考图提交给供应商）",
+			report.ReferenceImages, field))
+	}
+	if report.PrimaryImagesFilled > 0 {
+		parts = append(parts, "主图 inputImageUrl/inputImageOosKey 取自 inputImages 首张")
+	}
+	return strings.Join(parts, "；")
+}
+
 // prepareVideoRequestLog persists the SUBMITTING record (operation VIDEO_CREATE)
 // before any HTTP traffic. An existing log for the same key must carry the same
 // digest, else it is rejected locally (exit 6), mirroring server-side 2105.
-func prepareVideoRequestLog(app *appContext, profile, apiBaseURL, key string, rawRequest []byte, kind api.VideoKind) (*idem.RequestLog, error) {
+//
+// originalRequest is the document straight from --request. It differs from
+// rawRequest whenever videoreq rewrote the body, and it is only consulted when
+// the digests disagree: a log archived before the rewrite must stay replayable
+// ("结果未知时用同一个 --idempotency-key 重放"), otherwise upgrading the CLI
+// would turn that documented recovery path into an exit-6 conflict.
+func prepareVideoRequestLog(app *appContext, profile, apiBaseURL, key string, rawRequest, originalRequest []byte, kind api.VideoKind) (*idem.RequestLog, error) {
 	existing, err := idem.LoadLog(app.getenv, profile, key)
 	if err != nil {
 		if clierr.AsCLIError(err).Kind != clierr.KindNotFound {
@@ -244,13 +318,19 @@ func prepareVideoRequestLog(app *appContext, profile, apiBaseURL, key string, ra
 		return nil, err
 	}
 	if digest != existing.RequestDigest {
-		return nil, &clierr.CLIError{
-			Kind:     clierr.KindIdempotencyConflict,
-			ExitCode: clierr.ExitIdempotencyConflict,
-			Message: fmt.Sprintf(
-				"本地已存在 Key %s 的请求日志且请求 JSON 不同；同一 Key 必须复用原 JSON（原 digest %s）",
-				key, existing.RequestDigest),
+		if !replaysArchivedRequest(originalRequest, rawRequest, existing) {
+			return nil, &clierr.CLIError{
+				Kind:     clierr.KindIdempotencyConflict,
+				ExitCode: clierr.ExitIdempotencyConflict,
+				Message: fmt.Sprintf(
+					"本地已存在 Key %s 的请求日志且请求 JSON 不同；同一 Key 必须复用原 JSON（原 digest %s）",
+					key, existing.RequestDigest),
+			}
 		}
+		// Replay the archived document, not the rewritten one: it is the byte
+		// shape the server already fingerprinted under this key, so the request
+		// still replays instead of tripping the server's own 2105 conflict.
+		app.printer.Progressf("该 Idempotency-Key 是升级前提交的原文，按归档原文重放（不套用本次归一化）")
 	}
 	if err := existing.VerifyIntegrity(); err != nil {
 		return nil, err

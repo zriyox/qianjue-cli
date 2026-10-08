@@ -23,6 +23,7 @@ import (
 	"github.com/zriyox/qianjue-cli/internal/cred"
 	"github.com/zriyox/qianjue-cli/internal/output"
 	"github.com/zriyox/qianjue-cli/internal/qrterm"
+	"github.com/zriyox/qianjue-cli/internal/updatecheck"
 )
 
 // globalFlags carries the raw values of the global flags (cli-contract.md §5).
@@ -57,7 +58,14 @@ type appContext struct {
 	meta       map[string]any // envelope meta for the running command (profile/apiBaseUrl/traceId/...)
 
 	// injectable seams (overridden by tests)
-	ctx               context.Context
+	ctx context.Context
+	// updateCheck is the release-lookup seam. nil (tests, embedders) disables
+	// the hint entirely; Execute installs the production lookup.
+	updateCheck func(context.Context) (updatecheck.Result, error)
+	// updateHint is the in-flight background lookup for this invocation.
+	updateHint *updateHint
+	// updateHintBudget overrides defaultUpdateHintBudget (tests).
+	updateHintBudget  time.Duration
 	newStore          func() (cred.Store, error)
 	openBrowser       func(url string) error
 	loginPollInterval time.Duration
@@ -213,6 +221,9 @@ func newRootCommand(app *appContext) *cobra.Command {
 				return err
 			}
 			app.printer = output.NewPrinter(app.stdout, app.stderr, format, app.flags.quiet, app.colorDisabled())
+			// 版本提示必须在打印结果之前起跑：它只在发现新版本时写 stderr，
+			// 且只等一次受限预算（见 defaultUpdateHintBudget）。
+			app.updateHint = startUpdateHint(cmd, app)
 			return nil
 		},
 	}
@@ -259,21 +270,24 @@ func run(app *appContext, args []string) int {
 	}
 
 	executed, err := root.ExecuteC()
-	if err == nil {
-		return clierr.ExitOK
+	code := clierr.ExitOK
+	if err != nil {
+		// 命令实现只返回 *CLIError；其余错误都来自 cobra 的参数解析
+		// （未知命令、非法 flag、缺必填 flag），归 USAGE。
+		ce, ok := err.(*clierr.CLIError)
+		if !ok {
+			ce = clierr.Usage("%s", err.Error())
+		}
+		if app.printer == nil {
+			// 解析错误可能发生在 printer 装配前，只能走 stderr。
+			fmt.Fprintln(app.stderr, "Error:", output.Redact(ce.Error()))
+			code = clierr.ExitUsage
+		} else {
+			code = app.printer.Failure(commandPath(executed), ce, app.meta)
+		}
 	}
-	// 命令实现只返回 *CLIError；其余错误都来自 cobra 的参数解析
-	// （未知命令、非法 flag、缺必填 flag），归 USAGE。
-	ce, ok := err.(*clierr.CLIError)
-	if !ok {
-		ce = clierr.Usage("%s", err.Error())
-	}
-	if app.printer == nil {
-		// 解析错误可能发生在 printer 装配前，只能走 stderr。
-		fmt.Fprintln(app.stderr, "Error:", output.Redact(ce.Error()))
-		return clierr.ExitUsage
-	}
-	return app.printer.Failure(commandPath(executed), ce, app.meta)
+	app.updateHint.wait(app.hintBudget())
+	return code
 }
 
 // Execute runs the CLI with OS-level defaults and returns the process exit
@@ -295,6 +309,7 @@ func Execute(args []string) int {
 		stdinIsTerminal: stdinIsTTY,
 		readSecret:      readSecretFromTerminal(os.Stderr),
 	}
+	app.updateCheck = defaultUpdateCheck(app)
 	return run(app, args)
 }
 

@@ -62,7 +62,7 @@
 | 字段 | 必填 | 约束 |
 | --- | --- | --- |
 | `inputImageUrl` / `inputImageOosKey` | 图生视频必填其一 | ≤1024 / ≤512，图生视频主图 |
-| `inputImages[]` | 否 | ≤20，多图展示列表 |
+| `inputImages[]` | 否 | ≤20，素材列表。**Seedance 系与 `kling-v3-omni` 由 CLI 自动映射**：首张 → 主图，其余 → `seedanceConfig.referenceImages` / `omniConfig.imageList`，见下方「多图输入」 |
 | `referenceVideoUrl` / `referenceVideoOosKey` | 火山系 / 复刻类必填其一 | 参考视频 / 待处理源视频 |
 | `durationSeconds` | **按模型** | DTO 放到 **1~30**，但**各模型可选值不同，必须取 catalog 的 `allowedDurations`**。已知差异：`SEEDANCE_2_5` 实际 **4~30**（不是 1~30）、`MINIMAX_H3` 4~15、Seedance 其余三档只有 5/10/15、火山系 1/5/10/15/20 |
 | `aspectRatio` | 否（有默认） | ≤16 字符。**默认值取 catalog 的 `defaultAspectRatio`**，当前除 VectCut 口播是 `9:16` 外其余都是 `16:9`；要竖屏必须显式传。⚠️ **`SEEDANCE_2_5` 会忽略它**，见下方警告 |
@@ -71,10 +71,50 @@
 | `negativePrompt` | 否 | ≤2000 |
 | `extendFromTaskId` | 否 | ≤128，续写 |
 | `seedanceConfig` | 否 | Seedance 专用，如 `{"resolution":"480p"}`。内含 `generateAudio`（默认 `true`）—— **它只是允许模型出声，不保证有口播，见 SKILL.md 铁律 10** |
-| `omniConfig` | 否 | 可灵专用 |
+| `omniConfig` | 否 | 可灵专用。多图时其余参考图由 CLI 写入 `imageList`，见下方「多图输入」 |
 | `volcanoConfig` | 火山系必填 | 火山专用，见下节；字幕擦除必须带 `eraseType` |
 
 顶层 `sourceType` **必填**（见上面的顶层字段表），不传后端无法判断这是哪条链路。
+
+### 多图输入（Seedance / 可灵 Omni）：CLI 会自动映射，别只在 `inputImages` 里堆图
+
+后端真正下发给供应商的只有两处：`items[].inputImageUrl`（主图，1 张）和**各模型自己的参考图字段**
+（其余参考图）。**`inputImages[]` 只用于详情页展示、审核与主体识别**——只往它里面堆图，
+供应商那边就只有主图一张。Web 端一直是按下面这样拆的，CLI 现在也一致：
+
+| 模型 | 其余参考图去哪 |
+| --- | --- |
+| Seedance 系 | `seedanceConfig.referenceImages[]` |
+| `kling-v3-omni` | `omniConfig.imageList[]` |
+
+两种模型的主图映射相同，其余参考图都来自 `inputImages[1..]`：
+
+| 你写在请求里的 | CLI 提交给平台的 |
+| --- | --- |
+| `inputImages[0]` | `inputImageUrl` / `inputImageOosKey`（**仅当你两个都没写时**才回填） |
+| `inputImages[1..]` | 上表对应字段（**仅当它原本为空时**才填） |
+
+规则细节：
+
+- **只对 `video create` 生效**，且只对多图模型生效：Seedance 系（`SEEDANCE` / `SEEDANCE_2_0` /
+  `SEEDANCE_2_5` / `SEEDANCE_2_0_FAST` / `SEEDANCE_2_0_MINI`）与 `kling-v3-omni`。
+  其余模型只取首张，请直接写 `inputImageUrl`，CLI 不会替你造参考图字段。
+- **`edit` / `upscale` / `gesture-replica` 一律不动** —— 那几个端点是后端自己从 `inputImages`
+  拼参考图的，塞 `seedanceConfig` / `omniConfig` 反而会坏。
+- **已有值不覆盖**：显式写了 `inputImageUrl` 或目标参考图字段就按你写的走；同一请求重复执行也不会叠加。
+- `kling-v3-omni` 的 `omniConfig.imageList` 条目按 Web 端形状写 `{"imageOosKey","imageUrl"}`；
+  只给 `imageOosKey` 也行，后端会先换成 URL 再提交。
+- ⚠️ `kling-v3-omni` 的 `omniConfig.imageList` 后端硬上限 **9 张**（DTO `@Size(max=9)`，且入口是
+  `@Valid`）。主图不计入，所以 `inputImages` 最多能放 **10** 张；11 张起会直接被后端 400 拒掉。
+  CLI 不做截断（与 Web 一致），超了就是超了。
+- 命中映射时 CLI 会把结果说明写到 **stderr**（说明里带具体字段名；`--quiet` 时不写），
+  stdout 的 JSON 不受影响。
+- 想完全自己控制，就显式写目标参考图字段；要「只提交一张图」也照此显式写。
+- 幂等重放不受影响：升级前提交过的 key 仍按日志里的原文重放（CLI 会在 stderr 说明）。
+
+**排查「多张素材只提交了一张」**：先看后台供应商日志里的 `媒体数据` 条数 —— 那里显示的就是真正
+下发给供应商的图。若只有 1 张，按模型检查请求里 `seedanceConfig.referenceImages` /
+`omniConfig.imageList` 是否为空，以及 CLI 是否是旧版本（`qianjue version --check`）。
 
 > ⚠️ **`SEEDANCE_2_5` + 只给一张首帧图时，你传的 `aspectRatio` 会被忽略** —— 上游按
 > `adaptive` 处理，**成片跟随输入图的比例**。实测：传 `aspectRatio=9:16` + 一张 1:1 方图，

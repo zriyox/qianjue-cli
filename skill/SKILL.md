@@ -240,6 +240,7 @@ qianjue moderation cancel <recordId>       # 放弃，积分立即退回
 - ❌ 用户没要求就取消任务、或批量刷生成
 - ❌ 退出码 15 时自行申请审核 / 确认继续 / 加 `--i-understand-the-risk` / 改写提示词重提
 - ❌ 退出码 14「凭证库超时」后反复重试 —— 换 `QIANJUE_TOKEN` 或让用户在交互式终端授权一次
+- ❌ 把「有新版本」提示当成错误 —— 它只写 stderr，不动 stdout 的 JSON，也不改退出码
 
 ## 安装与更新
 
@@ -255,3 +256,19 @@ qianjue skill install --dir <路径>  # 显式指定目录
 
 **装完/更新后必须让用户重新打开会话**才会加载（会话启动时才扫描 skills 目录）。
 CLI 本身的安装方式见千谲官方安装页。
+
+### CLI 自己的版本提示
+
+任何命令跑完时，CLI 会顺带确认一次有没有更新版本（结果缓存 24 小时；查不到时 1 小时内不重试），
+发现新版本就往 **stderr** 打一行 `[提示] qianjue 有新版本 …`。它不改 stdout 的 JSON，也不改退出码；
+`--quiet` 时不打。**不要把它当成命令失败。**
+
+要主动确认（同步查询，给确定结论）：
+
+```bash
+qianjue version --check                 # table：Update check 一行给出 有新版本 / 已是最新 / 暂时无法确认
+qianjue version --check --output json   # data.checkStatus: UPDATE_AVAILABLE / UP_TO_DATE / UNAVAILABLE / UNKNOWN
+```
+
+关闭方式：环境变量 `QIANJUE_NO_UPDATE_CHECK=1`，或 `config.toml` 里 `update_check = false`。
+分发渠道不是公开仓库时，用 `QIANJUE_RELEASE_URL` 指向自己的发布页。

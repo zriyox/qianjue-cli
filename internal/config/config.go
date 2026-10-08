@@ -33,6 +33,15 @@ type Profile struct {
 type File struct {
 	CurrentProfile string             `toml:"current_profile,omitempty"`
 	Profiles       map[string]Profile `toml:"profiles,omitempty"`
+	// UpdateCheck opts out of the background "a newer CLI is published" hint.
+	// nil (the key is absent) keeps the hint on, so an existing config.toml
+	// does not silently change behaviour.
+	UpdateCheck *bool `toml:"update_check,omitempty"`
+}
+
+// UpdateCheckDisabled reports whether the user turned the release hint off.
+func UpdateCheckDisabled(file *File) bool {
+	return file != nil && file.UpdateCheck != nil && !*file.UpdateCheck
 }
 
 // Built-in defaults (cli-contract.md §5/§19).
